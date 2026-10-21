@@ -66,7 +66,7 @@ BeamRider can download game info (description, developer, genre, rating…) and 
 
 The first provider is [ScreenScraper](https://www.screenscraper.fr). In Settings → Scraper:
 
-1. Enter a ScreenScraper **developer ID and password**. ScreenScraper only gives API access to registered apps; request it on their forum. (Once BeamRider has its own, this step goes away.)
+1. ScreenScraper only gives API access to registered apps, so BeamRider needs **developer credentials**. Copy `.env.example` to `.env` (it's gitignored) and fill in `SCREENSCRAPER_DEV_ID` and `SCREENSCRAPER_DEV_PASSWORD`, or set them as environment variables. The developer fields in Settings override these; leave them empty to use `.env`.
 2. Optionally enter your screenscraper.fr **username and password**. It works without them, but an account gives a much higher daily quota.
 3. Pick the region, language, and which art to use for games (box art, screenshot, title screen, logo, fan art) and platforms (logo or console photo).
 4. Press **Test connection**, then **Scrape library**. Scraping runs in the background at about one game per 1–2 seconds, with progress shown in the corner, and can be stopped any time. Running it again only scrapes games that haven't been scraped yet.

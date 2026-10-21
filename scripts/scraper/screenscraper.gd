@@ -14,7 +14,7 @@ const FIELDS: Array = [
 		"help": "Your screenscraper.fr account. Optional, but gives a higher daily quota." },
 	{ "key": "password", "label": "Password", "kind": "password", "default": "" },
 	{ "key": "dev_id", "label": "Developer ID", "kind": "text", "default": "",
-		"help": "API access for this app, requested on the ScreenScraper forum." },
+		"help": "Leave empty to use BeamRider's own (from .env)." },
 	{ "key": "dev_password", "label": "Developer password", "kind": "password", "default": "" },
 	{ "key": "region", "label": "Region", "kind": "choice", "default": "us",
 		"options": [["us", "USA"], ["eu", "Europe"], ["jp", "Japan"], ["wor", "World"]] },
@@ -25,9 +25,10 @@ const FIELDS: Array = [
 
 const API_URL := "https://api.screenscraper.fr/api2/"
 const SOFTWARE_NAME := "BeamRider"
-## BeamRider's own developer credentials, once it has them. Settings override.
-const DEV_ID := ""
-const DEV_PASSWORD := ""
+## BeamRider's developer credentials come from these environment variables or
+## .env (see Env), unless the settings give others.
+const DEV_ID_KEY := "SCREENSCRAPER_DEV_ID"
+const DEV_PASSWORD_KEY := "SCREENSCRAPER_DEV_PASSWORD"
 
 ## Platform keys (RetroPie folder names) -> ScreenScraper system ids, from
 ## Skyscraper's platforms_idmap.csv.
@@ -140,7 +141,7 @@ func scrape_platform(platform: Dictionary) -> Result:
 
 func check() -> Dictionary:
 	if _dev_id().is_empty():
-		return { "ok": false, "message": "Needs a developer ID and password. Request them on the ScreenScraper forum." }
+		return { "ok": false, "message": "Needs a developer ID and password: set them in .env (see .env.example) or here." }
 	var has_user := not str(config.get("username", "")).is_empty()
 	var reply := _call("ssuserInfos.php" if has_user else "ssinfraInfos.php", {})
 	if reply.has("result"):
@@ -292,9 +293,9 @@ static func _text(value: Variant) -> String:
 
 func _dev_id() -> String:
 	var configured := str(config.get("dev_id", ""))
-	return configured if not configured.is_empty() else DEV_ID
+	return configured if not configured.is_empty() else Env.value(DEV_ID_KEY)
 
 
 func _dev_password() -> String:
 	var configured := str(config.get("dev_password", ""))
-	return configured if not configured.is_empty() else DEV_PASSWORD
+	return configured if not configured.is_empty() else Env.value(DEV_PASSWORD_KEY)
