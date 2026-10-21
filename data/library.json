@@ -1,0 +1,80 @@
+{
+	"platforms": [
+		{
+			"name": "NES", "maker": "Nintendo", "year": 1983, "color": "#c8102e",
+			"games": [
+				{ "name": "Super Mario Bros.", "year": 1985 },
+				{ "name": "The Legend of Zelda", "year": 1986 },
+				{ "name": "Metroid", "year": 1986 },
+				{ "name": "Mega Man 2", "year": 1988 },
+				{ "name": "Castlevania", "year": 1986 },
+				{ "name": "Punch-Out!!", "year": 1987 }
+			]
+		},
+		{
+			"name": "SNES", "maker": "Nintendo", "year": 1990, "color": "#6a4fb3",
+			"games": [
+				{ "name": "Super Metroid", "year": 1994 },
+				{ "name": "Chrono Trigger", "year": 1995 },
+				{ "name": "A Link to the Past", "year": 1991 },
+				{ "name": "Super Mario World", "year": 1990 },
+				{ "name": "F-Zero", "year": 1990 }
+			]
+		},
+		{
+			"name": "Mega Drive", "maker": "Sega", "year": 1988, "color": "#1f4fd1",
+			"games": [
+				{ "name": "Sonic the Hedgehog 2", "year": 1992 },
+				{ "name": "Streets of Rage 2", "year": 1992 },
+				{ "name": "Gunstar Heroes", "year": 1993 },
+				{ "name": "Phantasy Star IV", "year": 1993 }
+			]
+		},
+		{
+			"name": "Game Boy", "maker": "Nintendo", "year": 1989, "color": "#8bac0f",
+			"games": [
+				{ "name": "Tetris", "year": 1989 },
+				{ "name": "Link's Awakening", "year": 1993 },
+				{ "name": "Pokémon Red", "year": 1996 },
+				{ "name": "Kirby's Dream Land", "year": 1992 }
+			]
+		},
+		{
+			"name": "Nintendo 64", "maker": "Nintendo", "year": 1996, "color": "#2e8b57",
+			"games": [
+				{ "name": "Super Mario 64", "year": 1996 },
+				{ "name": "Ocarina of Time", "year": 1998 },
+				{ "name": "GoldenEye 007", "year": 1997 },
+				{ "name": "Mario Kart 64", "year": 1996 },
+				{ "name": "Star Fox 64", "year": 1997 }
+			]
+		},
+		{
+			"name": "PlayStation", "maker": "Sony", "year": 1994, "color": "#8a8f98",
+			"games": [
+				{ "name": "Final Fantasy VII", "year": 1997 },
+				{ "name": "Metal Gear Solid", "year": 1998 },
+				{ "name": "Castlevania: SotN", "year": 1997 },
+				{ "name": "Crash Bandicoot", "year": 1996 },
+				{ "name": "Gran Turismo", "year": 1997 }
+			]
+		},
+		{
+			"name": "Atari 2600", "maker": "Atari", "year": 1977, "color": "#d2691e",
+			"games": [
+				{ "name": "Pitfall!", "year": 1982 },
+				{ "name": "Adventure", "year": 1980 },
+				{ "name": "River Raid", "year": 1982 },
+				{ "name": "Space Invaders", "year": 1980 }
+			]
+		},
+		{
+			"name": "Master System", "maker": "Sega", "year": 1985, "color": "#d42020",
+			"games": [
+				{ "name": "Alex Kidd", "year": 1986 },
+				{ "name": "Phantasy Star", "year": 1987 },
+				{ "name": "Wonder Boy III", "year": 1989 }
+			]
+		}
+	]
+}
