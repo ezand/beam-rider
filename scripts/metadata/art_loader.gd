@@ -107,7 +107,7 @@ func _finish(job: Job) -> void:
 
 
 ## Runs on a worker thread. `file` is a MetadataSource.read_first() result.
-static func _decode(file: Dictionary, max_size: int) -> Image:
+static func _decode(file: Dictionary, size_limit: int) -> Image:
 	if file.is_empty():
 		return null
 	var data: PackedByteArray = file["data"]
@@ -124,8 +124,8 @@ static func _decode(file: Dictionary, max_size: int) -> Image:
 		push_warning("Could not decode art %s (error %d)" % [file["path"], error])
 		return null
 	var longest := maxi(image.get_width(), image.get_height())
-	if longest > max_size:
-		var factor := float(max_size) / longest
+	if longest > size_limit:
+		var factor := float(size_limit) / longest
 		image.resize(maxi(1, roundi(image.get_width() * factor)),
 				maxi(1, roundi(image.get_height() * factor)), Image.INTERPOLATE_LANCZOS)
 	image.generate_mipmaps()
