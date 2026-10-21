@@ -64,6 +64,12 @@ func request(key: String) -> Texture2D:
 	return null
 
 
+## Drops `key` from the cache, so the next request loads it again. Use it when
+## the art has changed, such as after scraping.
+func forget(key: String) -> void:
+	_cache.erase(key)
+
+
 func _process(_delta: float) -> void:
 	for task_id in _running.keys():
 		if WorkerThreadPool.is_task_completed(task_id):

@@ -8,11 +8,14 @@ extends RefCounted
 
 ## Bump when the schema changes. A database with another version is rebuilt
 ## (while the data is generated placeholder data, see LibraryBuilder).
-const SCHEMA_VERSION := 1
+const SCHEMA_VERSION := 2
 
 const SCHEMA: Array[String] = [
+	# `key` is the platform's short id, as in RetroPie folder names ("nes",
+	# "megadrive"). Scrapers map it to their own platform ids.
 	"""CREATE TABLE platforms (
 		id INTEGER PRIMARY KEY,
+		key TEXT NOT NULL UNIQUE,
 		name TEXT NOT NULL,
 		maker TEXT,
 		year INTEGER,
@@ -24,7 +27,16 @@ const SCHEMA: Array[String] = [
 		platform_id INTEGER NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,
 		name TEXT NOT NULL,
 		sort_name TEXT NOT NULL,
-		year INTEGER
+		year INTEGER,
+		file TEXT,
+		description TEXT,
+		developer TEXT,
+		publisher TEXT,
+		genre TEXT,
+		players TEXT,
+		rating REAL,
+		scraped_at INTEGER,
+		scrape_status TEXT
 	)""",
 	"CREATE INDEX games_by_platform_sort_name ON games(platform_id, sort_name)",
 	"PRAGMA user_version = %d" % SCHEMA_VERSION,
@@ -46,6 +58,10 @@ func open(path: String, read_only := false) -> bool:
 		push_error("Could not open library database %s: %s" % [path, _db.error_message])
 		_db = null
 		return false
+	# WAL lets the scraper write on its own connection while the UI reads.
+	_db.query("PRAGMA busy_timeout = 5000")
+	if not read_only:
+		_db.query("PRAGMA journal_mode = WAL")
 	return true
 
 
@@ -63,7 +79,7 @@ func schema_version() -> int:
 ## All platforms in display order, each with a `game_count`.
 func get_platforms() -> Array:
 	return _select("""
-		SELECT p.id, p.name, p.maker, p.year, p.color, COUNT(g.id) AS game_count
+		SELECT p.id, p.key, p.name, p.maker, p.year, p.color, COUNT(g.id) AS game_count
 		FROM platforms p
 		LEFT JOIN games g ON g.platform_id = p.id
 		GROUP BY p.id
@@ -83,6 +99,32 @@ func get_games(platform_id: int) -> Array:
 func get_game(game_id: int) -> Dictionary:
 	var rows := _select("SELECT * FROM games WHERE id = ?", [game_id])
 	return rows[0] if not rows.is_empty() else {}
+
+
+## Games of a platform for a scraper: all of them, or only those never scraped.
+func get_games_to_scrape(platform_id: int, only_unscraped := true) -> Array:
+	return _select("""
+		SELECT id, name, file, year
+		FROM games
+		WHERE platform_id = ?%s
+		ORDER BY sort_name""" % (" AND scraped_at IS NULL" if only_unscraped else ""),
+		[platform_id])
+
+
+## Records a scrape of a game. `status` is "found", "not_found" or "error".
+## Metadata keys as in Scraper.Result; `year` only fills in a missing year.
+func save_scrape(game_id: int, status: String, metadata := {}) -> bool:
+	var columns := ["scraped_at = ?", "scrape_status = ?"]
+	var values: Array = [int(Time.get_unix_time_from_system()), status]
+	for key in ["description", "developer", "publisher", "genre", "players", "rating"]:
+		if metadata.has(key):
+			columns.append("%s = ?" % key)
+			values.append(metadata[key])
+	if int(metadata.get("year", 0)) > 0:
+		columns.append("year = CASE WHEN year IS NULL OR year = 0 THEN ? ELSE year END")
+		values.append(int(metadata.year))
+	values.append(game_id)
+	return execute("UPDATE games SET %s WHERE id = ?" % ", ".join(columns), values)
 
 
 ## Runs a statement that returns no rows. Used by LibraryBuilder.

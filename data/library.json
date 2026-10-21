@@ -1,79 +1,79 @@
 {
 	"platforms": [
 		{
-			"name": "NES", "maker": "Nintendo", "year": 1983, "color": "#c8102e",
+			"key": "nes", "name": "NES", "maker": "Nintendo", "year": 1983, "color": "#c8102e",
 			"games": [
-				{ "name": "Super Mario Bros.", "year": 1985 },
-				{ "name": "The Legend of Zelda", "year": 1986 },
-				{ "name": "Metroid", "year": 1986 },
-				{ "name": "Mega Man 2", "year": 1988 },
-				{ "name": "Castlevania", "year": 1986 },
-				{ "name": "Punch-Out!!", "year": 1987 }
+				{ "name": "Super Mario Bros.", "year": 1985, "file": "Super Mario Bros. (World).nes" },
+				{ "name": "The Legend of Zelda", "year": 1986, "file": "Legend of Zelda, The (USA).nes" },
+				{ "name": "Metroid", "year": 1986, "file": "Metroid (USA).nes" },
+				{ "name": "Mega Man 2", "year": 1988, "file": "Mega Man 2 (USA).nes" },
+				{ "name": "Castlevania", "year": 1986, "file": "Castlevania (USA).nes" },
+				{ "name": "Punch-Out!!", "year": 1987, "file": "Punch-Out!! (USA).nes" }
 			]
 		},
 		{
-			"name": "SNES", "maker": "Nintendo", "year": 1990, "color": "#6a4fb3",
+			"key": "snes", "name": "SNES", "maker": "Nintendo", "year": 1990, "color": "#6a4fb3",
 			"games": [
-				{ "name": "Super Metroid", "year": 1994 },
-				{ "name": "Chrono Trigger", "year": 1995 },
-				{ "name": "A Link to the Past", "year": 1991 },
-				{ "name": "Super Mario World", "year": 1990 },
-				{ "name": "F-Zero", "year": 1990 }
+				{ "name": "Super Metroid", "year": 1994, "file": "Super Metroid (Japan, USA) (En).sfc" },
+				{ "name": "Chrono Trigger", "year": 1995, "file": "Chrono Trigger (USA).sfc" },
+				{ "name": "The Legend of Zelda: A Link to the Past", "year": 1991, "file": "Legend of Zelda, The - A Link to the Past (USA).sfc" },
+				{ "name": "Super Mario World", "year": 1990, "file": "Super Mario World (USA).sfc" },
+				{ "name": "F-Zero", "year": 1990, "file": "F-Zero (USA).sfc" }
 			]
 		},
 		{
-			"name": "Mega Drive", "maker": "Sega", "year": 1988, "color": "#1f4fd1",
+			"key": "megadrive", "name": "Mega Drive", "maker": "Sega", "year": 1988, "color": "#1f4fd1",
 			"games": [
-				{ "name": "Sonic the Hedgehog 2", "year": 1992 },
-				{ "name": "Streets of Rage 2", "year": 1992 },
-				{ "name": "Gunstar Heroes", "year": 1993 },
-				{ "name": "Phantasy Star IV", "year": 1993 }
+				{ "name": "Sonic the Hedgehog 2", "year": 1992, "file": "Sonic The Hedgehog 2 (World).md" },
+				{ "name": "Streets of Rage 2", "year": 1992, "file": "Streets of Rage 2 (USA).md" },
+				{ "name": "Gunstar Heroes", "year": 1993, "file": "Gunstar Heroes (USA).md" },
+				{ "name": "Phantasy Star IV", "year": 1993, "file": "Phantasy Star IV (USA).md" }
 			]
 		},
 		{
-			"name": "Game Boy", "maker": "Nintendo", "year": 1989, "color": "#8bac0f",
+			"key": "gb", "name": "Game Boy", "maker": "Nintendo", "year": 1989, "color": "#8bac0f",
 			"games": [
-				{ "name": "Tetris", "year": 1989 },
-				{ "name": "Link's Awakening", "year": 1993 },
-				{ "name": "Pokémon Red", "year": 1996 },
-				{ "name": "Kirby's Dream Land", "year": 1992 }
+				{ "name": "Tetris", "year": 1989, "file": "Tetris (World) (Rev 1).gb" },
+				{ "name": "The Legend of Zelda: Link's Awakening", "year": 1993, "file": "Legend of Zelda, The - Link's Awakening (USA, Europe).gb" },
+				{ "name": "Pokémon Red Version", "year": 1996, "file": "Pokemon - Red Version (USA, Europe) (SGB Enhanced).gb" },
+				{ "name": "Kirby's Dream Land", "year": 1992, "file": "Kirby's Dream Land (USA, Europe).gb" }
 			]
 		},
 		{
-			"name": "Nintendo 64", "maker": "Nintendo", "year": 1996, "color": "#2e8b57",
+			"key": "n64", "name": "Nintendo 64", "maker": "Nintendo", "year": 1996, "color": "#2e8b57",
 			"games": [
-				{ "name": "Super Mario 64", "year": 1996 },
-				{ "name": "Ocarina of Time", "year": 1998 },
-				{ "name": "GoldenEye 007", "year": 1997 },
-				{ "name": "Mario Kart 64", "year": 1996 },
-				{ "name": "Star Fox 64", "year": 1997 }
+				{ "name": "Super Mario 64", "year": 1996, "file": "Super Mario 64 (USA).z64" },
+				{ "name": "The Legend of Zelda: Ocarina of Time", "year": 1998, "file": "Legend of Zelda, The - Ocarina of Time (USA).z64" },
+				{ "name": "GoldenEye 007", "year": 1997, "file": "GoldenEye 007 (USA).z64" },
+				{ "name": "Mario Kart 64", "year": 1996, "file": "Mario Kart 64 (USA).z64" },
+				{ "name": "Star Fox 64", "year": 1997, "file": "Star Fox 64 (USA).z64" }
 			]
 		},
 		{
-			"name": "PlayStation", "maker": "Sony", "year": 1994, "color": "#8a8f98",
+			"key": "psx", "name": "PlayStation", "maker": "Sony", "year": 1994, "color": "#8a8f98",
 			"games": [
-				{ "name": "Final Fantasy VII", "year": 1997 },
-				{ "name": "Metal Gear Solid", "year": 1998 },
-				{ "name": "Castlevania: SotN", "year": 1997 },
-				{ "name": "Crash Bandicoot", "year": 1996 },
-				{ "name": "Gran Turismo", "year": 1997 }
+				{ "name": "Final Fantasy VII", "year": 1997, "file": "Final Fantasy VII (USA) (Disc 1).chd" },
+				{ "name": "Metal Gear Solid", "year": 1998, "file": "Metal Gear Solid (USA) (Disc 1).chd" },
+				{ "name": "Castlevania: Symphony of the Night", "year": 1997, "file": "Castlevania - Symphony of the Night (USA).chd" },
+				{ "name": "Crash Bandicoot", "year": 1996, "file": "Crash Bandicoot (USA).chd" },
+				{ "name": "Gran Turismo", "year": 1997, "file": "Gran Turismo (USA).chd" }
 			]
 		},
 		{
-			"name": "Atari 2600", "maker": "Atari", "year": 1977, "color": "#d2691e",
+			"key": "atari2600", "name": "Atari 2600", "maker": "Atari", "year": 1977, "color": "#d2691e",
 			"games": [
-				{ "name": "Pitfall!", "year": 1982 },
-				{ "name": "Adventure", "year": 1980 },
-				{ "name": "River Raid", "year": 1982 },
-				{ "name": "Space Invaders", "year": 1980 }
+				{ "name": "Pitfall!", "year": 1982, "file": "Pitfall! - Pitfall Harry's Jungle Adventure (USA).a26" },
+				{ "name": "Adventure", "year": 1980, "file": "Adventure (USA).a26" },
+				{ "name": "River Raid", "year": 1982, "file": "River Raid (USA).a26" },
+				{ "name": "Space Invaders", "year": 1980, "file": "Space Invaders (USA).a26" }
 			]
 		},
 		{
-			"name": "Master System", "maker": "Sega", "year": 1985, "color": "#d42020",
+			"key": "mastersystem", "name": "Master System", "maker": "Sega", "year": 1985, "color": "#d42020",
 			"games": [
-				{ "name": "Alex Kidd", "year": 1986 },
-				{ "name": "Phantasy Star", "year": 1987 },
-				{ "name": "Wonder Boy III", "year": 1989 }
+				{ "name": "Alex Kidd in Miracle World", "year": 1986, "file": "Alex Kidd in Miracle World (USA, Europe).sms" },
+				{ "name": "Phantasy Star", "year": 1987, "file": "Phantasy Star (USA, Europe).sms" },
+				{ "name": "Wonder Boy III: The Dragon's Trap", "year": 1989, "file": "Wonder Boy III - The Dragon's Trap (USA, Europe).sms" }
 			]
 		}
 	]

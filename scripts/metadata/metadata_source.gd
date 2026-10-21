@@ -39,6 +39,16 @@ func read_first(base_path: String, extensions: PackedStringArray) -> Dictionary:
 	return {}
 
 
+## Whether write_file() works, so a scraper can save art here.
+func can_write() -> bool:
+	return false
+
+
+## Saves `data` at `relative_path`, creating folders. Returns true on success.
+func write_file(_relative_path: String, _data: PackedByteArray) -> bool:
+	return false
+
+
 ## Whether the source is set up and reachable, for the settings screen.
 ## Returns { "ok": bool, "message": String }. Called on the main thread.
 func check() -> Dictionary:

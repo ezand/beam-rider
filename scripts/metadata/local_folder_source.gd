@@ -28,6 +28,23 @@ func read_file(relative_path: String) -> PackedByteArray:
 	return FileAccess.get_file_as_bytes(path)
 
 
+func can_write() -> bool:
+	return not root.is_empty()
+
+
+func write_file(relative_path: String, data: PackedByteArray) -> bool:
+	if root.is_empty():
+		return false
+	var path := root.path_join(relative_path)
+	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		push_warning("Could not write %s (error %d)" % [path, FileAccess.get_open_error()])
+		return false
+	file.store_buffer(data)
+	return true
+
+
 func check() -> Dictionary:
 	if root.is_empty():
 		return { "ok": false, "message": "No folder set. Cards show their name and color." }

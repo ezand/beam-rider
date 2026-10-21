@@ -37,7 +37,7 @@ Game data lives in an SQLite database at `user://library.db`, read through the [
 - Windows: `%APPDATA%\Godot\app_userdata\BeamRider\`
 - Linux: `~/.local/share/godot/app_userdata/BeamRider/`
 
-For now the database is generated from `data/library.json`, plus a "Stress Test" platform of 10,000 generated games for performance testing. It's rebuilt automatically when the file is missing or the schema version changes. To rebuild it yourself, delete `library.db` or run:
+For now the database is generated from `data/library.json` (sample platforms and games with their real ROM file names), plus a "Stress Test" platform of 10,000 generated games for performance testing. It's rebuilt automatically when the file is missing or the schema version changes. To rebuild it yourself, delete `library.db` or run:
 
 ```sh
 godot --headless --path . --script res://tools/build_library.gd -- --stress=10000
@@ -58,7 +58,26 @@ metadata/games/NES/The Legend of Zelda.webp
 
 File names match the platform and game names exactly, with any of `` & * / : ` < > ? \ | " `` replaced by `_` (the same rule as the libretro thumbnail sets). PNG, JPEG and WebP are supported. Large images are scaled down to 512 px on load.
 
-To use other folders, press Tab (gamepad Start) to open Settings. Platform and game art have separate sources. **Browse…** picks a folder, and **Open** shows it in your file manager (creating it if needed). Settings are saved in `user://settings.cfg`. Only local folders are supported for now. A network share works if your OS has it mounted. The source setting is built so that FTP, HTTP and other sources can be added later.
+Art can also be downloaded by a scraper (below). To use other folders, press Tab (gamepad Start) to open Settings. Platform and game art have separate sources. **Browse…** picks a folder, and **Open** shows it in your file manager (creating it if needed). Settings are saved in `user://settings.cfg`. Only local folders are supported for now. A network share works if your OS has it mounted. The source setting is built so that FTP, HTTP and other sources can be added later.
+
+## Scraping
+
+BeamRider can download game info (description, developer, genre, rating…) and art from an online database. The art is saved into the metadata folders above, so it shows up on the cards right away. Art you already have is never replaced. Games are matched by their ROM file name, with a search by name as a fallback.
+
+The first provider is [ScreenScraper](https://www.screenscraper.fr). In Settings → Scraper:
+
+1. Enter a ScreenScraper **developer ID and password**. ScreenScraper only gives API access to registered apps; request it on their forum. (Once BeamRider has its own, this step goes away.)
+2. Optionally enter your screenscraper.fr **username and password**. It works without them, but an account gives a much higher daily quota.
+3. Pick the region, language, and which art to use for games (box art, screenshot, title screen, logo, fan art) and platforms (logo or console photo).
+4. Press **Test connection**, then **Scrape library**. Scraping runs in the background at about one game per 1–2 seconds, with progress shown in the corner, and can be stopped any time. Running it again only scrapes games that haven't been scraped yet.
+
+Or from a terminal, using the saved settings (`--all` scrapes every game again):
+
+```sh
+godot --headless --path . --script res://tools/scrape_library.gd
+```
+
+Note that passwords are stored unencrypted in `user://settings.cfg`.
 
 ## Project layout
 
@@ -70,8 +89,11 @@ scripts/library/game_library.gd      Database schema and queries (GameLibrary)
 scripts/library/library_builder.gd   Builds the database from seed data (LibraryBuilder)
 scripts/settings.gd                  Persisted user settings with defaults (Settings)
 scripts/metadata/                    Metadata sources and async art loading
+scripts/scraper/                     Scraper providers (ScreenScraper) and the scrape job
+scripts/net/http_fetch.gd            Blocking HTTP for worker threads
 scripts/ui/settings_menu.gd          Settings overlay (SettingsMenu)
 tools/build_library.gd               Command-line database rebuild
+tools/scrape_library.gd              Command-line scrape
 data/library.json                    Seed data: platforms and games
 addons/godot-sqlite/                 SQLite add-on (desktop builds only)
 addons/godot_ai/                     MCP server so AI assistants can drive the editor

@@ -37,6 +37,7 @@ static func build(path: String, stress_games := 0, json_path := JSON_PATH) -> bo
 		var platform_id := i + 1
 		platform_rows.append({
 			"id": platform_id,
+			"key": platform.get("key", String(platform["name"]).to_snake_case()),
 			"name": platform["name"],
 			"maker": platform.get("maker", ""),
 			"year": int(platform.get("year", 0)),
@@ -49,6 +50,7 @@ static func build(path: String, stress_games := 0, json_path := JSON_PATH) -> bo
 				"name": game["name"],
 				"sort_name": GameLibrary.make_sort_name(game["name"]),
 				"year": int(game.get("year", 0)),
+				"file": game.get("file", ""),
 			})
 
 	var ok := library.insert_rows("platforms", platform_rows) \
@@ -89,5 +91,5 @@ static func _make_stress_platform(count: int) -> Dictionary:
 					nouns[rng.randi() % nouns.size()], rng.randi_range(1, 99)],
 			"year": rng.randi_range(1977, 2004),
 		}
-	return { "name": STRESS_PLATFORM_NAME, "maker": "Generated", "year": 2026,
+	return { "key": "stress-test", "name": STRESS_PLATFORM_NAME, "maker": "Generated", "year": 2026,
 			"color": "#00b3a4", "games": games }

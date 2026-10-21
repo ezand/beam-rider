@@ -23,6 +23,7 @@ var settings := Settings.new()
 ## Art for platform and game cards, each from its own configurable source.
 var platform_art := ArtLoader.new()
 var game_art := ArtLoader.new()
+var library_scraper := LibraryScraper.new()
 ## Rows from the platforms table, in display order.
 var platforms: Array = []
 ## Index into `platforms` being browsed, or -1 while browsing platforms.
@@ -38,6 +39,7 @@ var _hold_time := 0.0
 var _repeat_timer := 0.0
 var _debug_label: Label
 var _settings_menu: SettingsMenu
+var _scrape_label: Label
 ## Art key -> index of the item using it in the current view, so a card can be
 ## refreshed when its art finishes loading.
 var _art_keys := {}
@@ -57,8 +59,14 @@ func _ready() -> void:
 		loader.art_loaded.connect(_on_art_loaded)
 	_apply_metadata_settings()
 	_create_debug_overlay()
-	_settings_menu = SettingsMenu.new(settings)
+	_create_scrape_status()
+	add_child(library_scraper)
+	library_scraper.art_saved.connect(_on_art_saved)
+	library_scraper.progress.connect(_on_scrape_progress)
+	library_scraper.finished.connect(_on_scrape_finished)
+	_settings_menu = SettingsMenu.new(settings, library_scraper)
 	_settings_menu.saved.connect(_apply_metadata_settings)
+	_settings_menu.scrape_requested.connect(_start_scrape)
 	$UI.add_child(_settings_menu)
 	spinner.selection_changed.connect(_on_selection_changed)
 	_show_platforms(0)
@@ -240,16 +248,46 @@ func _game_card(index: int) -> Dictionary:
 ## (Re)creates the art sources from settings. Cards without art keep showing
 ## their name and color, so an empty or missing source is not an error.
 func _apply_metadata_settings() -> void:
-	platform_art.source = MetadataSources.create(
-			settings.get_metadata_source(Settings.PLATFORM_METADATA))
-	game_art.source = MetadataSources.create(
-			settings.get_metadata_source(Settings.GAME_METADATA))
+	platform_art.source = MetadataSources.create(settings.get_config(Settings.PLATFORM_METADATA))
+	game_art.source = MetadataSources.create(settings.get_config(Settings.GAME_METADATA))
 	spinner.refresh()
 
 
 func _on_art_loaded(key: String) -> void:
 	if _art_keys.has(key):
 		spinner.refresh(_art_keys[key])
+
+
+## Scrapes the library in the background with the saved scraper settings.
+## Art is saved into the metadata sources the cards read from.
+func _start_scrape() -> void:
+	var scraper := Scrapers.create(settings.get_config(Settings.SCRAPER))
+	if scraper == null:
+		return
+	library_scraper.start(ScrapeJob.new(database_path, scraper,
+			platform_art.source, game_art.source))
+
+
+## New art replaces a cached "no art" result and shows on its card right away.
+func _on_art_saved(scope: String, key: String) -> void:
+	var loader := platform_art if scope == "platform" else game_art
+	loader.forget(key)
+	if _art_keys.has(key):
+		spinner.refresh(_art_keys[key])
+
+
+func _on_scrape_progress(done: int, total: int, text: String) -> void:
+	_scrape_label.text = "Scraping %d / %d  ·  %s" % [done + 1, total, text]
+	_scrape_label.visible = true
+
+
+func _on_scrape_finished(summary: Dictionary) -> void:
+	_scrape_label.text = "Scraping done: %d found, %d not found%s" % [
+			summary.found, summary.not_found,
+			"  ·  " + summary.message if summary.message else ""]
+	get_tree().create_timer(6.0).timeout.connect(func() -> void:
+			if not library_scraper.is_running():
+				_scrape_label.visible = false)
 
 
 ## Shrinks the spinner away, runs `rebuild`, then grows it back.
@@ -294,6 +332,19 @@ func _create_debug_overlay() -> void:
 	_debug_label.add_theme_font_size_override("font_size", 16)
 	_debug_label.add_theme_color_override("font_color", Color(0.6, 1.0, 0.6))
 	$UI.add_child(_debug_label)
+
+
+func _create_scrape_status() -> void:
+	_scrape_label = Label.new()
+	_scrape_label.visible = false
+	_scrape_label.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	_scrape_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_scrape_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_scrape_label.position += Vector2(-40, -80)
+	_scrape_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_scrape_label.add_theme_font_size_override("font_size", 16)
+	_scrape_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
+	$UI.add_child(_scrape_label)
 
 
 func _update_debug_overlay() -> void:
