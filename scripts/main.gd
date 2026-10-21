@@ -4,7 +4,6 @@ extends Node3D
 ## Emitted when the player picks a game. Nothing launches games yet.
 signal game_launch_requested(platform: Dictionary, game: Dictionary)
 
-const LIBRARY_PATH := "res://data/library.json"
 const PLATFORM_ITEM_SIZE := Vector3(1.6, 1.0, 0.2)
 const GAME_ITEM_SIZE := Vector3(1.0, 1.4, 0.15)
 
@@ -14,12 +13,20 @@ const REPEAT_SLOWEST := 0.12
 const REPEAT_FASTEST := 0.02
 const REPEAT_RAMP := 2.5
 
-## Adds a "Stress Test" platform with this many generated games. 0 = off.
+@export var database_path := "user://library.db"
+## When the database is (re)built from data/library.json, also add a
+## "Stress Test" platform with this many generated games. 0 = off.
 @export var stress_test_games := 10000
 
+var library := GameLibrary.new()
+## Rows from the platforms table, in display order.
 var platforms: Array = []
-## Index of the platform being browsed, or -1 while browsing platforms.
+## Index into `platforms` being browsed, or -1 while browsing platforms.
 var current_platform := -1
+## The current platform's game list (id, name, sort_name, year), sorted.
+var games: Array = []
+## Filled by the background query started in _activate().
+var _loaded_games: Array = []
 
 var _transitioning := false
 var _hold_direction := 0
@@ -33,9 +40,9 @@ var _debug_label: Label
 
 
 func _ready() -> void:
-	platforms = _load_library()
-	if stress_test_games > 0:
-		platforms.append(_make_stress_platform(stress_test_games))
+	_open_library()
+	platforms = library.get_platforms()
+	print("Loaded %d platforms in %.2f ms" % [platforms.size(), library.last_query_msec])
 	_create_debug_overlay()
 	spinner.selection_changed.connect(_on_selection_changed)
 	_show_platforms(0)
@@ -117,21 +124,21 @@ func _jump_letter(direction: int) -> void:
 
 
 func _initial(index: int) -> String:
-	var entries: Array = platforms if current_platform == -1 \
-			else platforms[current_platform]["games"]
-	return String(entries[index]["name"]).left(1).to_upper()
+	if current_platform == -1:
+		return String(platforms[index]["name"]).left(1).to_upper()
+	return String(games[index]["sort_name"]).left(1).to_upper()
 
 
-func _load_library() -> Array:
-	var file := FileAccess.open(LIBRARY_PATH, FileAccess.READ)
-	if file == null:
-		push_error("Could not open %s" % LIBRARY_PATH)
-		return []
-	var data: Variant = JSON.parse_string(file.get_as_text())
-	if data is Dictionary:
-		return data.get("platforms", [])
-	push_error("%s is not valid library JSON" % LIBRARY_PATH)
-	return []
+## Opens the database, building it from data/library.json first if it is
+## missing or has an old schema. The auto-build is for development only: once
+## the backend owns the database, a missing database should be an error screen.
+func _open_library() -> void:
+	if FileAccess.file_exists(database_path) and library.open(database_path):
+		if library.schema_version() == GameLibrary.SCHEMA_VERSION:
+			return
+		library.close()
+	LibraryBuilder.build(database_path, stress_test_games)
+	library.open(database_path)
 
 
 func _activate() -> void:
@@ -139,13 +146,19 @@ func _activate() -> void:
 		return
 	if current_platform == -1:
 		var index := spinner.selected
-		if platforms[index].get("games", []).is_empty():
+		if int(platforms[index]["game_count"]) == 0:
 			info_label.text = "No games for %s yet" % platforms[index]["name"]
 			return
-		_transition(_show_games.bind(index))
+		# Query on a worker thread while the spinner shrinks away, so a large
+		# platform never stalls a frame. _show_games waits for it if needed.
+		var platform_id := int(platforms[index]["id"])
+		var task := WorkerThreadPool.add_task(
+				func() -> void: _loaded_games = library.get_games(platform_id),
+				false, "Load games")
+		_transition(_show_games.bind(index, task))
 	else:
 		var platform: Dictionary = platforms[current_platform]
-		var game: Dictionary = platform["games"][spinner.selected]
+		var game: Dictionary = games[spinner.selected]
 		info_label.text = "Launching %s…" % game["name"]
 		game_launch_requested.emit(platform, game)
 
@@ -157,14 +170,22 @@ func _back() -> void:
 
 func _show_platforms(start_index: int) -> void:
 	current_platform = -1
+	games = []
 	spinner.item_size = PLATFORM_ITEM_SIZE
 	spinner.item_spacing = 2.1
 	spinner.set_source(platforms.size(), _platform_card, start_index)
 
 
-func _show_games(platform_index: int) -> void:
+## `load_task` is the WorkerThreadPool task filling `_loaded_games`.
+func _show_games(platform_index: int, load_task: int) -> void:
+	var waited := Time.get_ticks_usec()
+	WorkerThreadPool.wait_for_task_completion(load_task)
 	current_platform = platform_index
-	var games: Array = platforms[platform_index].get("games", [])
+	games = _loaded_games
+	_loaded_games = []
+	print("Loaded %d games for %s in %.2f ms (main thread waited %.2f ms)" % [
+			games.size(), platforms[platform_index]["name"], library.last_query_msec,
+			(Time.get_ticks_usec() - waited) / 1000.0])
 	spinner.item_size = GAME_ITEM_SIZE
 	spinner.item_spacing = 1.5
 	spinner.set_source(games.size(), _game_card, 0)
@@ -182,13 +203,10 @@ func _platform_card(index: int) -> Dictionary:
 
 ## Builds card data for one game of the current platform.
 func _game_card(index: int) -> Dictionary:
-	var platform: Dictionary = platforms[current_platform]
-	var game: Dictionary = platform["games"][index]
-	var color: Variant = game.get("color")
-	if color == null:
-		var base := Color(platform.get("color", "#888888"))
-		color = Color.from_hsv(fposmod(base.h + (index % 7) * 0.04, 1.0), base.s * 0.85,
-				clampf(base.v * (0.75 + 0.1 * (index % 3)), 0.0, 1.0))
+	var game: Dictionary = games[index]
+	var base := Color(platforms[current_platform].get("color", "#888888"))
+	var color := Color.from_hsv(fposmod(base.h + (index % 7) * 0.04, 1.0), base.s * 0.85,
+			clampf(base.v * (0.75 + 0.1 * (index % 3)), 0.0, 1.0))
 	return { "name": game["name"], "subtitle": _year(game), "color": color }
 
 
@@ -206,45 +224,22 @@ func _on_selection_changed(index: int) -> void:
 	if current_platform == -1:
 		var platform: Dictionary = platforms[index]
 		title_label.text = "PLATFORMS"
-		info_label.text = "%s  ·  %d games" % [platform["name"], platform.get("games", []).size()]
+		info_label.text = "%s  ·  %d games" % [platform["name"], int(platform["game_count"])]
 	else:
 		var platform: Dictionary = platforms[current_platform]
-		var games: Array = platform["games"]
 		var game: Dictionary = games[index]
 		title_label.text = "PLATFORMS  ›  %s" % String(platform["name"]).to_upper()
 		info_label.text = "%s  ·  %s      %d / %d" % [
 				game["name"], _year(game), index + 1, games.size()]
 
 
-## JSON numbers load as floats, so format years as whole numbers.
 func _year(entry: Dictionary) -> String:
-	return str(int(entry["year"])) if entry.has("year") else ""
+	var year: Variant = entry.get("year")
+	return "" if year == null or int(year) == 0 else str(int(year))
 
 
-func _make_stress_platform(count: int) -> Dictionary:
-	var started := Time.get_ticks_usec()
-	var adjectives := ["Super", "Mega", "Ultra", "Hyper", "Turbo", "Final", "Dark", "Cosmic",
-			"Neon", "Iron", "Crystal", "Shadow", "Golden", "Wild", "Silent", "Atomic",
-			"Brave", "Crimson", "Electric", "Frozen", "Grand", "Lost", "Mystic", "Quantum"]
-	var nouns := ["Quest", "Fighter", "Racer", "Legend", "Saga", "Warrior", "Odyssey", "Blaster",
-			"Knight", "Dragon", "Pilot", "Ninja", "Kart", "Tactics", "Dungeon", "Galaxy",
-			"Hunter", "Islands", "Machine", "Rebellion", "Strike", "Tower", "Voyage", "Zone"]
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 64
-	var games := []
-	games.resize(count)
-	for i in count:
-		games[i] = {
-			"name": "%s %s %d" % [adjectives[rng.randi() % adjectives.size()],
-					nouns[rng.randi() % nouns.size()], rng.randi_range(1, 99)],
-			"year": rng.randi_range(1977, 2004),
-		}
-	games.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return String(a["name"]).naturalnocasecmp_to(b["name"]) < 0)
-	print("Generated %d stress-test games in %.1f ms"
-			% [count, (Time.get_ticks_usec() - started) / 1000.0])
-	return { "name": "Stress Test", "maker": "Generated", "year": 2026, "color": "#00b3a4",
-			"games": games }
+func _exit_tree() -> void:
+	library.close()
 
 
 func _create_debug_overlay() -> void:
