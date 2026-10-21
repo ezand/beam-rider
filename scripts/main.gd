@@ -19,6 +19,10 @@ const REPEAT_RAMP := 2.5
 @export var stress_test_games := 10000
 
 var library := GameLibrary.new()
+var settings := Settings.new()
+## Art for platform and game cards, each from its own configurable source.
+var platform_art := ArtLoader.new()
+var game_art := ArtLoader.new()
 ## Rows from the platforms table, in display order.
 var platforms: Array = []
 ## Index into `platforms` being browsed, or -1 while browsing platforms.
@@ -33,6 +37,10 @@ var _hold_direction := 0
 var _hold_time := 0.0
 var _repeat_timer := 0.0
 var _debug_label: Label
+var _settings_menu: SettingsMenu
+## Art key -> index of the item using it in the current view, so a card can be
+## refreshed when its art finishes loading.
+var _art_keys := {}
 
 @onready var spinner: Spinner = $Spinner
 @onready var title_label: Label = %TitleLabel
@@ -43,7 +51,15 @@ func _ready() -> void:
 	_open_library()
 	platforms = library.get_platforms()
 	print("Loaded %d platforms in %.2f ms" % [platforms.size(), library.last_query_msec])
+	settings.load_file()
+	for loader in [platform_art, game_art]:
+		add_child(loader)
+		loader.art_loaded.connect(_on_art_loaded)
+	_apply_metadata_settings()
 	_create_debug_overlay()
+	_settings_menu = SettingsMenu.new(settings)
+	_settings_menu.saved.connect(_apply_metadata_settings)
+	$UI.add_child(_settings_menu)
 	spinner.selection_changed.connect(_on_selection_changed)
 	_show_platforms(0)
 
@@ -60,8 +76,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and not event.echo \
 			and event.keycode == KEY_F3:
 		_debug_label.visible = not _debug_label.visible
-	elif _transitioning:
+	elif _transitioning or _settings_menu.visible:
 		return
+	elif _is_key(event, KEY_TAB) or _is_joy_button(event, JOY_BUTTON_START):
+		_settings_menu.open()
 	elif event.is_action_pressed("ui_accept"):
 		_activate()
 	elif event.is_action_pressed("ui_cancel"):
@@ -85,7 +103,7 @@ func _unhandled_input(event: InputEvent) -> void:
 ## can repeat on our own accelerating schedule instead of the OS key repeat.
 func _update_held_navigation(delta: float) -> void:
 	var direction := 0
-	if not _transitioning:
+	if not _transitioning and not _settings_menu.visible:
 		direction = int(Input.is_action_pressed("ui_right")) - int(Input.is_action_pressed("ui_left"))
 	if direction == 0:
 		_hold_direction = 0
@@ -171,6 +189,7 @@ func _back() -> void:
 func _show_platforms(start_index: int) -> void:
 	current_platform = -1
 	games = []
+	_art_keys.clear()
 	spinner.item_size = PLATFORM_ITEM_SIZE
 	spinner.item_spacing = 2.1
 	spinner.set_source(platforms.size(), _platform_card, start_index)
@@ -186,6 +205,7 @@ func _show_games(platform_index: int, load_task: int) -> void:
 	print("Loaded %d games for %s in %.2f ms (main thread waited %.2f ms)" % [
 			games.size(), platforms[platform_index]["name"], library.last_query_msec,
 			(Time.get_ticks_usec() - waited) / 1000.0])
+	_art_keys.clear()
 	spinner.item_size = GAME_ITEM_SIZE
 	spinner.item_spacing = 1.5
 	spinner.set_source(games.size(), _game_card, 0)
@@ -194,10 +214,13 @@ func _show_games(platform_index: int, load_task: int) -> void:
 ## Builds card data for one platform. Called by the spinner only when it shows.
 func _platform_card(index: int) -> Dictionary:
 	var platform: Dictionary = platforms[index]
+	var art_key := MetadataSource.file_name(platform["name"])
+	_art_keys[art_key] = index
 	return {
 		"name": platform["name"],
 		"subtitle": "%s · %s" % [platform.get("maker", ""), _year(platform)],
 		"color": platform.get("color", "#888888"),
+		"art": platform_art.request(art_key),
 	}
 
 
@@ -207,7 +230,26 @@ func _game_card(index: int) -> Dictionary:
 	var base := Color(platforms[current_platform].get("color", "#888888"))
 	var color := Color.from_hsv(fposmod(base.h + (index % 7) * 0.04, 1.0), base.s * 0.85,
 			clampf(base.v * (0.75 + 0.1 * (index % 3)), 0.0, 1.0))
-	return { "name": game["name"], "subtitle": _year(game), "color": color }
+	var art_key := "%s/%s" % [MetadataSource.file_name(platforms[current_platform]["name"]),
+			MetadataSource.file_name(game["name"])]
+	_art_keys[art_key] = index
+	return { "name": game["name"], "subtitle": _year(game), "color": color,
+			"art": game_art.request(art_key) }
+
+
+## (Re)creates the art sources from settings. Cards without art keep showing
+## their name and color, so an empty or missing source is not an error.
+func _apply_metadata_settings() -> void:
+	platform_art.source = MetadataSources.create(
+			settings.get_metadata_source(Settings.PLATFORM_METADATA))
+	game_art.source = MetadataSources.create(
+			settings.get_metadata_source(Settings.GAME_METADATA))
+	spinner.refresh()
+
+
+func _on_art_loaded(key: String) -> void:
+	if _art_keys.has(key):
+		spinner.refresh(_art_keys[key])
 
 
 ## Shrinks the spinner away, runs `rebuild`, then grows it back.
@@ -264,6 +306,10 @@ func _update_debug_overlay() -> void:
 		Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
 		spinner.item_count,
 	]
+
+
+func _is_key(event: InputEvent, keycode: Key) -> bool:
+	return event is InputEventKey and event.pressed and not event.echo and event.keycode == keycode
 
 
 func _is_joy_button(event: InputEvent, button: JoyButton) -> bool:

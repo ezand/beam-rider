@@ -25,6 +25,7 @@ The game starts fullscreen. On the first run it creates the library database (se
 | Jump to previous / next letter | Page Up / Page Down | Left / right shoulder |
 | Open platform / pick game | Enter | A / Cross |
 | Back to platforms | Esc | B / Circle |
+| Settings | Tab | Start |
 | Toggle fullscreen | F11 or Alt+Enter | |
 | Performance overlay | F3 | |
 
@@ -44,6 +45,21 @@ godot --headless --path . --script res://tools/build_library.gd -- --stress=1000
 
 Set `--stress=0`, or the `stress_test_games` property on the Main node, to leave out the test platform. A separate backend that scans ROM folders and fetches metadata will eventually own this database. The frontend only reads it.
 
+## Artwork
+
+Cards show artwork when it's available, and otherwise their name and color. No setup is needed: by default art is read from a `metadata` folder in the `user://` folder above. Drop files in like this:
+
+```
+metadata/platforms/NES.png
+metadata/platforms/Mega Drive.jpg
+metadata/games/NES/Metroid.png
+metadata/games/NES/The Legend of Zelda.webp
+```
+
+File names match the platform and game names exactly, with any of `` & * / : ` < > ? \ | " `` replaced by `_` (the same rule as the libretro thumbnail sets). PNG, JPEG and WebP are supported. Large images are scaled down to 512 px on load.
+
+To use other folders, press Tab (gamepad Start) to open Settings. Platform and game art have separate sources. **Browse…** picks a folder, and **Open** shows it in your file manager (creating it if needed). Settings are saved in `user://settings.cfg`. Only local folders are supported for now. A network share works if your OS has it mounted. The source setting is built so that FTP, HTTP and other sources can be added later.
+
 ## Project layout
 
 ```
@@ -52,6 +68,9 @@ scripts/main.gd                      Navigation, input, loading data for each vi
 scripts/spinner.gd                   Virtualized 3D carousel (Spinner)
 scripts/library/game_library.gd      Database schema and queries (GameLibrary)
 scripts/library/library_builder.gd   Builds the database from seed data (LibraryBuilder)
+scripts/settings.gd                  Persisted user settings with defaults (Settings)
+scripts/metadata/                    Metadata sources and async art loading
+scripts/ui/settings_menu.gd          Settings overlay (SettingsMenu)
 tools/build_library.gd               Command-line database rebuild
 data/library.json                    Seed data: platforms and games
 addons/godot-sqlite/                 SQLite add-on (desktop builds only)
