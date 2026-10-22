@@ -60,6 +60,7 @@ No build, lint, or test tooling is set up. Run these from `frontend/` (or pass `
 - Run the project: `godot --path .`
 - Run a specific scene: `godot --path . res://path/to/scene.tscn`
 - Import resources and check scripts headlessly: `godot --headless --path . --import`
+- Export: `godot --headless --path . --export-release <preset>` with preset `Windows`, `Linux` or `macOS` (from `export_presets.cfg`; output goes to the gitignored `build/`). This needs the Godot 4.7 export templates (Editor → Manage Export Templates). The presets exclude `addons/godot_ai/` and `tools/`; godot_ai's own export plugin strips its `_mcp_game_helper` autoload. macOS builds are universal (which is why `import_etc2_astc` is on in `project.godot`) and ad-hoc signed only, so they need a Developer ID and notarization before they can run on other Macs. `--export-pack` works without templates, but a bare pack can't load the sqlite extension.
 
 ## Conventions
 
