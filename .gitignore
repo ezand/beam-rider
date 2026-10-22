@@ -1,6 +1,4 @@
-# Godot 4+ specific ignores
-.godot/
-/android/
+# Repo-wide ignores. Each app keeps its own tool-specific ignores in its folder.
 
-# Local secrets (see .env.example)
+# Local secrets (see each app's .env.example)
 .env
