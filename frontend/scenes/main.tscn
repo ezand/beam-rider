@@ -2,6 +2,7 @@
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/spinner.gd" id="2_spinner"]
+[ext_resource type="Script" path="res://scripts/ui/details_panel.gd" id="3_details"]
 
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
@@ -62,31 +63,47 @@ theme_override_constants/margin_top = 32
 theme_override_constants/margin_right = 40
 theme_override_constants/margin_bottom = 32
 
-[node name="VBox" type="VBoxContainer" parent="UI/Margin"]
+[node name="Columns" type="HBoxContainer" parent="UI/Margin"]
 layout_mode = 2
 mouse_filter = 2
+theme_override_constants/separation = 24
 
-[node name="TitleLabel" type="Label" parent="UI/Margin/VBox"]
+[node name="Browse" type="VBoxContainer" parent="UI/Margin/Columns"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 1.8
+mouse_filter = 2
+
+[node name="TitleLabel" type="Label" parent="UI/Margin/Columns/Browse"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(0.55, 0.85, 1, 1)
 theme_override_font_sizes/font_size = 28
 text = "PLATFORMS"
 
-[node name="Spacer" type="Control" parent="UI/Margin/VBox"]
+[node name="Spacer" type="Control" parent="UI/Margin/Columns/Browse"]
 layout_mode = 2
 size_flags_vertical = 3
 mouse_filter = 2
 
-[node name="InfoLabel" type="Label" parent="UI/Margin/VBox"]
+[node name="InfoLabel" type="Label" parent="UI/Margin/Columns/Browse"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 32
 horizontal_alignment = 1
+text_overrun_behavior = 3
 
-[node name="HintLabel" type="Label" parent="UI/Margin/VBox"]
+[node name="HintLabel" type="Label" parent="UI/Margin/Columns/Browse"]
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 0.5)
 theme_override_font_sizes/font_size = 18
 text = "←  →  browse     Enter  select     Esc  back     Tab  settings"
 horizontal_alignment = 1
+
+[node name="Details" type="PanelContainer" parent="UI/Margin/Columns"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+script = ExtResource("3_details")

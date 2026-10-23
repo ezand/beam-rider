@@ -43,10 +43,14 @@ var _scrape_label: Label
 ## Art key -> index of the item using it in the current view, so a card can be
 ## refreshed when its art finishes loading.
 var _art_keys := {}
+## Art key of the item in the details panel, "" when it shows nothing.
+var _details_key := ""
 
 @onready var spinner: Spinner = $Spinner
 @onready var title_label: Label = %TitleLabel
 @onready var info_label: Label = %InfoLabel
+@onready var details: DetailsPanel = %Details
+@onready var browse_column: Control = %Browse
 
 
 func _ready() -> void:
@@ -69,6 +73,9 @@ func _ready() -> void:
 	_settings_menu.scrape_requested.connect(_start_scrape)
 	$UI.add_child(_settings_menu)
 	spinner.selection_changed.connect(_on_selection_changed)
+	spinner.settled.connect(_on_settled)
+	browse_column.resized.connect(_place_spinner)
+	_place_spinner.call_deferred()
 	_show_platforms(0)
 
 
@@ -222,7 +229,7 @@ func _show_games(platform_index: int, load_task: int) -> void:
 ## Builds card data for one platform. Called by the spinner only when it shows.
 func _platform_card(index: int) -> Dictionary:
 	var platform: Dictionary = platforms[index]
-	var art_key := MetadataSource.file_name(platform["name"])
+	var art_key := _platform_art_key(index)
 	_art_keys[art_key] = index
 	return {
 		"name": platform["name"],
@@ -238,11 +245,24 @@ func _game_card(index: int) -> Dictionary:
 	var base := Color(platforms[current_platform].get("color", "#888888"))
 	var color := Color.from_hsv(fposmod(base.h + (index % 7) * 0.04, 1.0), base.s * 0.85,
 			clampf(base.v * (0.75 + 0.1 * (index % 3)), 0.0, 1.0))
-	var art_key := "%s/%s" % [MetadataSource.file_name(platforms[current_platform]["name"]),
-			MetadataSource.file_name(game["name"])]
+	var art_key := _game_art_key(index)
 	_art_keys[art_key] = index
 	return { "name": game["name"], "subtitle": _year(game), "color": color,
 			"art": game_art.request(art_key) }
+
+
+func _platform_art_key(index: int) -> String:
+	return MetadataSource.file_name(platforms[index]["name"])
+
+
+func _game_art_key(index: int) -> String:
+	return "%s/%s" % [MetadataSource.file_name(platforms[current_platform]["name"]),
+			MetadataSource.file_name(games[index]["name"])]
+
+
+## The art loader for the current view.
+func _view_art() -> ArtLoader:
+	return platform_art if current_platform == -1 else game_art
 
 
 ## (Re)creates the art sources from settings. Cards without art keep showing
@@ -251,11 +271,15 @@ func _apply_metadata_settings() -> void:
 	platform_art.source = MetadataSources.create(settings.get_config(Settings.PLATFORM_METADATA))
 	game_art.source = MetadataSources.create(settings.get_config(Settings.GAME_METADATA))
 	spinner.refresh()
+	if not _details_key.is_empty():
+		details.set_art(_view_art().request(_details_key))
 
 
 func _on_art_loaded(key: String) -> void:
 	if _art_keys.has(key):
 		spinner.refresh(_art_keys[key])
+	if key == _details_key:
+		details.set_art(_view_art().request(key))
 
 
 ## Scrapes the library in the background with the saved scraper settings.
@@ -274,6 +298,8 @@ func _on_art_saved(scope: String, key: String) -> void:
 	loader.forget(key)
 	if _art_keys.has(key):
 		spinner.refresh(_art_keys[key])
+	if key == _details_key:
+		loader.request(key)
 
 
 func _on_scrape_progress(done: int, total: int, text: String) -> void:
@@ -293,6 +319,7 @@ func _on_scrape_finished(summary: Dictionary) -> void:
 ## Shrinks the spinner away, runs `rebuild`, then grows it back.
 func _transition(rebuild: Callable) -> void:
 	_transitioning = true
+	_hide_details()
 	var tween := create_tween().set_trans(Tween.TRANS_CUBIC)
 	tween.tween_property(spinner, "scale", Vector3.ONE * 0.01, 0.18).set_ease(Tween.EASE_IN)
 	tween.tween_callback(rebuild)
@@ -301,6 +328,7 @@ func _transition(rebuild: Callable) -> void:
 
 
 func _on_selection_changed(index: int) -> void:
+	_hide_details()
 	if current_platform == -1:
 		var platform: Dictionary = platforms[index]
 		title_label.text = "PLATFORMS"
@@ -311,6 +339,68 @@ func _on_selection_changed(index: int) -> void:
 		title_label.text = "PLATFORMS  ›  %s" % String(platform["name"]).to_upper()
 		info_label.text = "%s  ·  %s      %d / %d" % [
 				game["name"], _year(game), index + 1, games.size()]
+
+
+## The wheel stopped: show the selection's art and details beside it. The game
+## row is one lookup by primary key, cheap enough for the main thread.
+func _on_settled(index: int) -> void:
+	if current_platform == -1:
+		var platform: Dictionary = platforms[index]
+		_details_key = _platform_art_key(index)
+		details.show_item({
+			"name": platform["name"],
+			"subtitle": "  ·  ".join(_present([platform.get("maker"), _year(platform)])),
+			"color": platform.get("color", "#888888"),
+			"art": platform_art.request(_details_key),
+			"facts": [["Games", str(int(platform["game_count"]))]],
+		})
+		return
+	var platform: Dictionary = platforms[current_platform]
+	var game := library.get_game(int(games[index]["id"]))
+	var facts := []
+	for field: Array in [["developer", "Developer"], ["publisher", "Publisher"],
+			["genre", "Genre"], ["players", "Players"]]:
+		var value: Variant = game.get(field[0])
+		if value != null and not str(value).is_empty():
+			facts.append([field[1], value])
+	if game.get("rating") != null:
+		facts.append(["Rating", "%.1f / 5" % (float(game["rating"]) * 5.0)])
+	_details_key = _game_art_key(index)
+	details.show_item({
+		"name": games[index]["name"],
+		"subtitle": "  ·  ".join(_present([platform["name"], _year(game)])),
+		"color": platform.get("color", "#888888"),
+		"art": game_art.request(_details_key),
+		"facts": facts,
+		"description": "" if game.get("description") == null else str(game["description"]),
+	})
+
+
+func _hide_details() -> void:
+	_details_key = ""
+	details.clear()
+
+
+## Centres the wheel in the browse column, whatever the window's aspect ratio,
+## and turns it to face the camera.
+func _place_spinner() -> void:
+	var camera := get_viewport().get_camera_3d()
+	var anchor := Vector3(0, spinner.position.y, spinner.position.z)
+	var depth := camera.global_basis.z.dot(camera.global_position - anchor)
+	var screen := Vector2(browse_column.get_global_rect().get_center().x,
+			camera.unproject_position(anchor).y)
+	spinner.position.x = camera.project_position(screen, depth).x
+	spinner.rotation.y = atan2(camera.global_position.x - spinner.position.x,
+			camera.global_position.z - spinner.position.z)
+
+
+## The non-empty strings among `values`.
+func _present(values: Array) -> PackedStringArray:
+	var result := PackedStringArray()
+	for value: Variant in values:
+		if value != null and not str(value).is_empty():
+			result.append(str(value))
+	return result
 
 
 func _year(entry: Dictionary) -> String:
@@ -340,7 +430,7 @@ func _create_scrape_status() -> void:
 	_scrape_label.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	_scrape_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	_scrape_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_scrape_label.position += Vector2(-40, -80)
+	_scrape_label.position += Vector2(-60, -44)
 	_scrape_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_scrape_label.add_theme_font_size_override("font_size", 16)
 	_scrape_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))

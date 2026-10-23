@@ -8,6 +8,8 @@ extends Node3D
 ## entries. Item data is pulled on demand from a provider callable.
 
 signal selection_changed(index: int)
+## The wheel has (nearly) stopped on `index`. Also fires when a source is set.
+signal settled(index: int)
 
 @export var item_size := Vector3(1.6, 1.0, 0.2): set = _set_item_size
 ## Arc length between neighbouring items.
@@ -21,6 +23,8 @@ signal selection_changed(index: int)
 ## How many items the animation may trail behind the selection. Keeps the front
 ## card in step with the selection during fast scrolling and big jumps.
 @export var max_scroll_lag := 2.0
+## How close, in items, the animation must get to the selection to count as settled.
+@export var settle_distance := 0.05
 @export var selected_scale := 1.3
 @export var idle_emission := 0.15
 @export var selected_emission := 0.9
@@ -42,6 +46,7 @@ var _provider: Callable
 ## Scroll position and target, in items. Not wrapped, so animation never jumps.
 var _position := 0.0
 var _target := 0
+var _settled := true
 ## Unwrapped item index -> Slot currently showing it.
 var _active := {}
 var _pool: Array[Slot] = []
@@ -78,9 +83,11 @@ func set_source(count: int, provider: Callable, start_index := 0) -> void:
 	selected = clampi(start_index, 0, count - 1)
 	_target = selected
 	_position = selected
+	_settled = true
 	_sync_slots()
 	_update_transforms()
 	selection_changed.emit(selected)
+	settled.emit(selected)
 
 
 ## Moves the selection by `steps` (+ = right, - = left), wrapping around.
@@ -89,6 +96,7 @@ func move(steps: int) -> void:
 		return
 	_target += steps
 	selected = posmod(_target, item_count)
+	_settled = false
 	# On big jumps or very fast scrolling, skip the animation ahead so only a
 	# few items are ever in flight instead of rebuilding every item in between.
 	if absf(_target - _position) > max_scroll_lag:
@@ -119,6 +127,9 @@ func _process(delta: float) -> void:
 		_position = _target
 	_sync_slots()
 	_update_transforms()
+	if not _settled and absf(_target - _position) < settle_distance:
+		_settled = true
+		settled.emit(selected)
 	last_update_usec = Time.get_ticks_usec() - started
 
 
