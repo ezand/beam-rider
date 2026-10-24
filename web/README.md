@@ -2,7 +2,7 @@
 
 A web version of the BeamRider frontend: a 3D carousel of platforms, then of each platform's games, built with React and CSS 3D transforms (no canvas or WebGL). The Bun server reads the library from SQLite, and the browser loads games a page at a time as the wheel turns, so it handles platforms with 100,000+ games.
 
-The library holds your games only: the ROM scanner builds it from your files, identifying them with the No-Intro and Redump reference lists, and scrapers fill in details, descriptions and artwork from free sources (libretro, Hasheous, Wikipedia).
+The library holds your games only: the ROM scanner builds it from your files, identifying them with the No-Intro and Redump reference lists, and scrapers fill in details, descriptions and artwork from free sources (libretro, Hasheous, Wikipedia). [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) lists the licenses and terms of the software, fonts, data and services it uses.
 
 Keys: ← → browse (hold to speed up), PageUp/PageDown jump to the next letter, Enter select, Esc back. The mouse wheel also browses.
 
