@@ -9,6 +9,7 @@ alwaysApply: false
 The web version of the BeamRider frontend (Bun server, React, CSS 3D). `README.md` has the layout, commands, settings, schema and API; read it before working here.
 
 - `src/components/Carousel.tsx` is stateless: the parent owns the selection, and the component renders only the cards near the front, calling `getItem` just for those. Keep it that way: never render a card per list entry, and keep motion in CSS (only `--offset` animates).
+- The showcase (`src/components/showcase/`) follows the root `CLAUDE.md`'s cabinet design. Keep its parts stateless (motion in CSS, from props and keys), animate transforms and opacity (a filter only for a brief flash), give every new animation a `prefers-reduced-motion` rule, and make missing data a fallback, never an empty box. Blurred or small art uses the 64 px thumbnails, not the 512s.
 - Server state on the client goes through TanStack Query (`src/library/queries.ts`). Game lists are paged around the selection (`useGamePages`), never loaded whole.
 - Change the database schema by adding a migration to `MIGRATIONS` in `src/server/schema.ts`. Never edit a migration that has been committed.
 - The library holds only the user's games: a game exists because the scanner found files for it. Don't add catalogues of other games to it. Reference data (the DATs) lives in its own database (`data/dats.db`).

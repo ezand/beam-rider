@@ -24,7 +24,12 @@ To set up a library: set `LIBRARY_ROM_ROOTS` in `.env`, then run `import:dats` a
 
 - `src/components/Carousel.tsx` is a stateless port of the Godot spinner (`frontend/scripts/spinner.gd`).
 - `src/App.tsx` drives the two-level navigation, like `frontend/scripts/main.gd`.
-- `src/components/DetailsPanel.tsx` shows the selected item's art, facts and description beside the wheel, like the Godot frontend's details panel. It fades out while the wheel moves and fills in once it stops, so scrolling past games doesn't fetch their details. Windows narrower than 900 px leave it out.
+- `src/components/showcase/` is the selected item's showcase beside the wheel, made for a cabinet seen from arm's length (see "Design" in the root `CLAUDE.md`):
+  - `Showcase.tsx`: a game's logo lit like a marquee, title screen and gameplay on a CRT (`Crt.tsx`), its box in 3D (`BoxArt.tsx`), facts as badges, a description that scrolls itself (`Teleprompter.tsx`) and PRESS A TO PLAY; or a platform's name, game count and a wall of its covers. Anything missing is left out or falls back (no logo: the title in display type; no screenshots: the box on the CRT).
+  - `Backdrop.tsx`: the whole screen's background, the selected item's art blurred and tinted with its color.
+  - It powers down while the wheel moves, and powers up in stages once it stops and what it shows has loaded, so scrolling past games doesn't fetch their details. Fonts (Press Start 2P, Orbitron) are bundled, so it works offline.
+  - On 4:3 and portrait (TATE) screens it goes below the wheel; narrow widescreen windows leave it out. `prefers-reduced-motion` stills the motion.
+- Attract mode: after 90 s without input the wheel turns by itself, a step every 7 s. The first input after that only wakes it.
 - `src/library/` is the client side of the library: API types (shared with the server), TanStack Query definitions and `useGamePages`, which loads pages of games around the selection.
 - `src/server/` is the server side:
   - `schema.ts`: tables and migrations.
@@ -140,8 +145,8 @@ Game cards show the game's best downloaded front box (`box-front` in `game_image
 
 Nothing is loaded at startup. The carousel renders an image only for the cards near the front, so art loads as the wheel turns.
 
-Originals are often large scans, so cards load `GET /art/512/<path>?v=<crc32>` instead.
-- **First request:** shrinks the original to fit 512 px as WebP (about 30 ms) and caches it in `<media>/thumbs/`.
+Originals are often large scans, so cards load `GET /art/512/<path>?v=<crc32>` instead, and the blurred backdrop `/art/64/`.
+- **First request:** shrinks the original to fit the size as WebP (about 30 ms) and caches it in `<media>/thumbs/`.
 - **After that:** it's served from disk, with headers that let the browser cache it for good. The version in the URL changes when an image is replaced.
 
 ## API
@@ -149,7 +154,7 @@ Originals are often large scans, so cards load `GET /art/512/<path>?v=<crc32>` i
 - `GET /api/platforms` lists the platforms with games, with their counts.
 - `GET /api/platforms/:id/games?offset=&limit=` returns `{ offset, rows: [{ id, title, release_year, art }] }`. `art` is the card art URL, or null. `limit` is at most 200.
 - `GET /api/platforms/:id/letter?game=&direction=1|-1` returns `{ index }`: where PageDown/PageUp goes from that game, or null.
-- `GET /art/512/:shard/:file?v=` serves card art thumbnails.
+- `GET /art/:size/:shard/:file?v=` serves art thumbnails, at 512 or 64 px.
 - `GET /api/games/:id` returns a game's details: fields, genres, the description with its source and link, downloaded images (as thumbnail URLs) and files.
 - `POST /api/scan` and `POST /api/scrape` start a scan or a scrape (`?full=1` rehashes every file, or looks every game up again). They answer 202 with the job's status, or 409 if a scan or scrape is already running, here or in `bun run scan`/`bun run scrape`.
 - `GET /api/scan` and `GET /api/scrape` both return the current job's status:

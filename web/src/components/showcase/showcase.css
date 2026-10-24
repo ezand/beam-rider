@@ -1,0 +1,523 @@
+/*
+ * Styles for the showcase (Showcase.tsx and its parts). Built for an arcade
+ * cabinet seen from arm's length: big type, glow, and motion that's all
+ * transforms and opacity, so modest hardware keeps up.
+ */
+
+.showcase {
+  --accent: rgb(140 217 255);
+  --display: "Orbitron Variable", "Orbitron", system-ui, sans-serif;
+  --pixel: "Press Start 2P", ui-monospace, monospace;
+
+  container-type: size;
+  position: relative;
+  display: flex;
+  min-height: 0;
+  color: white;
+}
+
+.showcase__stage {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* Power down quickly while the wheel moves; staged power-up once it stops. */
+.showcase--off .showcase__stage {
+  animation: showcase-off 0.12s ease-in forwards;
+}
+
+@keyframes showcase-off {
+  to {
+    opacity: 0;
+    transform: scaleY(0.92);
+    filter: brightness(2.5);
+  }
+}
+
+.showcase--on .showcase__stage > * {
+  animation: showcase-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.showcase--on .showcase__stage > :nth-child(2) { animation-delay: 0.08s; }
+.showcase--on .showcase__stage > :nth-child(3) { animation-delay: 0.16s; }
+.showcase--on .showcase__stage > :nth-child(n + 4) { animation-delay: 0.24s; }
+
+@keyframes showcase-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+/* ---- Marquee: the logo, lit like neon ---- */
+
+.marquee {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: clamp(70px, 16vh, 150px);
+  flex-shrink: 0;
+}
+
+.marquee__logo {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 0 6px var(--accent)) drop-shadow(0 0 18px color-mix(in srgb, var(--accent) 60%, transparent));
+}
+
+.marquee__title {
+  margin: 0;
+  font-family: var(--display);
+  font-size: clamp(26px, 4.2vh, 46px);
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: white;
+  text-shadow: 0 0 4px var(--accent), 0 0 14px var(--accent), 0 0 32px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.marquee__title--long {
+  font-size: clamp(20px, 3.2vh, 34px);
+}
+
+/* The neon tube flickering on. */
+.showcase--on .marquee > * {
+  animation: neon-on 0.9s steps(1) both;
+}
+
+@keyframes neon-on {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  14% { opacity: 0.2; }
+  22% { opacity: 1; }
+  26% { opacity: 0.4; }
+  40%, 100% { opacity: 1; }
+}
+
+.showcase__title {
+  margin: 0;
+  font-family: var(--display);
+  font-size: clamp(18px, 2.6vh, 26px);
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 0.03em;
+}
+
+.showcase__subtitle {
+  font-family: var(--pixel);
+  font-size: clamp(12px, 1.7vh, 16px);
+  text-align: center;
+  color: var(--accent);
+}
+
+/* ---- Media: the CRT and the box ---- */
+
+.showcase__media {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4%;
+  flex: 0 1 auto;
+  min-height: 0;
+  height: clamp(150px, 34vh, 380px);
+}
+
+.crt {
+  height: 100%;
+  aspect-ratio: 4 / 3;
+  max-width: 68%;
+  padding: 10px;
+  border-radius: 22px;
+  background: linear-gradient(160deg, #2a2a33, #101015);
+  box-shadow: 0 0 0 2px #050508, 0 18px 40px rgb(0 0 0 / 0.6), 0 0 40px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.crt__screen {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 14px / 18px;
+  background: black;
+}
+
+.showcase--on .crt__screen {
+  animation: crt-on 0.45s ease-out both;
+}
+
+/* A bright line that opens into the picture. */
+@keyframes crt-on {
+  0% { transform: scale(0.05, 0.004); filter: brightness(4); }
+  40% { transform: scale(1, 0.004); filter: brightness(4); }
+  100% { transform: scale(1, 1); filter: brightness(1); }
+}
+
+.crt__image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  filter: saturate(1.15) contrast(1.05);
+}
+
+/* Each image is on for its share of the cycle, crossfading into the next. */
+.crt__image--cycling {
+  opacity: 0;
+  animation: var(--crt-keyframes) var(--crt-cycle) infinite;
+}
+
+@keyframes crt-cycle-2 {
+  0%, 55%, 100% { opacity: 0; }
+  5%, 50% { opacity: 1; }
+}
+
+@keyframes crt-cycle-3 {
+  0%, 37%, 100% { opacity: 0; }
+  4%, 33.3% { opacity: 1; }
+}
+
+@keyframes crt-cycle-4 {
+  0%, 28%, 100% { opacity: 0; }
+  3%, 25% { opacity: 1; }
+}
+
+.crt__scanlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgb(0 0 0 / 0.28) 0 1px, transparent 1px 3px);
+  mix-blend-mode: multiply;
+}
+
+.crt__glass {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgb(255 255 255 / 0.12), transparent 45%),
+    radial-gradient(ellipse at center, transparent 55%, rgb(0 0 0 / 0.55) 100%);
+  box-shadow: inset 0 0 28px rgb(0 0 0 / 0.8);
+}
+
+.box3d {
+  container-type: size;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 86%;
+  width: 28%;
+  perspective: 700px;
+}
+
+.box3d__object {
+  position: relative;
+  transform-style: preserve-3d;
+  transform: rotateY(-24deg);
+  animation: box-sway 7s ease-in-out infinite alternate;
+}
+
+/* As big as fits the box's room, in the cover's own proportions. */
+.box3d__front {
+  display: block;
+  max-width: 100cqw;
+  max-height: 100cqh;
+  border-radius: 3px;
+  box-shadow: 0 14px 30px rgb(0 0 0 / 0.55);
+  transform: translateZ(9px);
+}
+
+/* The left edge of the cover, stretched and darkened, as the spine. */
+.box3d__spine {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 100%;
+  background-size: 1200% 100%;
+  background-position: left center;
+  filter: brightness(0.45);
+  transform-origin: left center;
+  transform: translateZ(9px) rotateY(-90deg);
+}
+
+.box3d__reflection {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 100%;
+  height: 40%;
+  object-fit: cover;
+  object-position: bottom;
+  transform: translateZ(9px) scaleY(-1);
+  opacity: 0.22;
+  mask-image: linear-gradient(to top, black, transparent 80%);
+  filter: blur(1px);
+}
+
+@keyframes box-sway {
+  from { transform: rotateY(-30deg) rotateX(2deg); }
+  to { transform: rotateY(-14deg) rotateX(-2deg); }
+}
+
+/* ---- Facts ---- */
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.badge {
+  padding: 7px 10px 6px;
+  border-radius: 4px;
+  font-family: var(--pixel);
+  font-size: clamp(10px, 1.45vh, 13px);
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: rgb(255 255 255 / 0.08);
+  border: 1px solid rgb(255 255 255 / 0.18);
+}
+
+.badge--accent {
+  color: black;
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.showcase--on .badge {
+  animation: badge-in 0.3s cubic-bezier(0.3, 1.4, 0.5, 1) both;
+  animation-delay: calc(0.3s + var(--i) * 0.06s);
+}
+
+@keyframes badge-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+.showcase__byline {
+  font-size: clamp(14px, 2vh, 18px);
+  text-align: center;
+  color: rgb(255 255 255 / 0.7);
+}
+
+/* ---- Description ---- */
+
+.showcase__description,
+.showcase__spacer {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.teleprompter {
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, transparent, black 1.2em, black calc(100% - 2em), transparent);
+}
+
+.teleprompter__text {
+  padding: 0.6em 0 1.5em;
+  font-size: clamp(15px, 2.1vh, 20px);
+  line-height: 1.5;
+  color: rgb(255 255 255 / 0.85);
+}
+
+.teleprompter[data-scrolls="true"] .teleprompter__text {
+  animation: teleprompter var(--teleprompter-duration) linear infinite;
+}
+
+/* Hold, roll to the end, hold, fade and start over. */
+@keyframes teleprompter {
+  0%, 18% { transform: translateY(0); opacity: 1; }
+  82% { transform: translateY(var(--teleprompter-distance)); opacity: 1; }
+  92% { transform: translateY(var(--teleprompter-distance)); opacity: 1; }
+  96% { transform: translateY(var(--teleprompter-distance)); opacity: 0; }
+  97% { transform: translateY(0); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.showcase__footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.action {
+  font-family: var(--pixel);
+  font-size: clamp(12px, 1.8vh, 16px);
+  letter-spacing: 0.05em;
+  color: white;
+  text-shadow: 0 0 8px var(--accent);
+  animation: action-pulse 1.6s ease-in-out infinite;
+}
+
+.action__button {
+  display: inline-grid;
+  place-items: center;
+  width: 2.2em;
+  height: 2.2em;
+  margin: 0 0.4em;
+  border-radius: 50%;
+  vertical-align: middle;
+  color: black;
+  background: radial-gradient(circle at 35% 30%, #ff8a8a, #e01b24 60%, #8a0a10);
+  box-shadow: 0 3px 0 #5a0408, 0 0 14px rgb(255 60 60 / 0.6);
+  text-shadow: none;
+}
+
+@keyframes action-pulse {
+  50% { opacity: 0.55; }
+}
+
+.showcase__credit {
+  font-size: 12px;
+  color: rgb(255 255 255 / 0.45);
+}
+
+/* ---- Platforms ---- */
+
+.counter {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 14px;
+}
+
+.counter__number {
+  font-family: var(--display);
+  font-size: clamp(44px, 9vh, 96px);
+  font-weight: 900;
+  line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 0 20px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.counter__label {
+  font-family: var(--pixel);
+  font-size: clamp(12px, 1.8vh, 16px);
+}
+
+.cover-wall {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  perspective: 900px;
+  mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent);
+}
+
+.cover-wall__strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  transform: rotateX(18deg);
+  transform-origin: top;
+  animation: cover-wall calc(var(--covers) * 1.5s) linear infinite;
+}
+
+.cover-wall__cover {
+  width: 100%;
+  aspect-ratio: 0.72;
+  object-fit: cover;
+  border-radius: 3px;
+  box-shadow: 0 6px 14px rgb(0 0 0 / 0.5);
+}
+
+/* Up by one copy of the covers, then the second copy is where the first was. */
+@keyframes cover-wall {
+  to { transform: rotateX(18deg) translateY(calc(-50% - 5px)); }
+}
+
+/*
+ * A wide, short showcase (below the wheel on a 4:3 screen): the media on
+ * the left, the rest in a column on the right.
+ */
+@container (min-aspect-ratio: 2/1) {
+  .showcase__stage {
+    flex-wrap: wrap;
+    column-gap: 28px;
+  }
+  .showcase__media,
+  .cover-wall {
+    order: -1;
+    width: 48%;
+    height: 100%;
+  }
+  .showcase__stage > :not(.showcase__media, .cover-wall) {
+    width: calc(52% - 28px);
+  }
+  .marquee {
+    height: 24cqh;
+  }
+}
+
+/* ---- The whole-screen backdrop (Backdrop.tsx) ---- */
+
+.backdrop {
+  --backdrop-accent: rgb(140 217 255);
+
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background: rgb(8 8 18);
+}
+
+.backdrop__image {
+  position: absolute;
+  inset: -8%;
+  width: 116%;
+  height: 116%;
+  object-fit: cover;
+  filter: blur(26px) saturate(1.4) brightness(0.55);
+}
+
+.backdrop__image--in {
+  animation: backdrop-in 0.7s ease-out both;
+}
+
+@keyframes backdrop-in {
+  from { opacity: 0; }
+}
+
+.backdrop__tint {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 75% 40%, color-mix(in srgb, var(--backdrop-accent) 22%, transparent), transparent 60%),
+    linear-gradient(to right, rgb(8 8 18 / 0.85), rgb(8 8 18 / 0.45) 55%, rgb(8 8 18 / 0.7)),
+    repeating-linear-gradient(to bottom, rgb(0 0 0 / 0.18) 0 1px, transparent 1px 3px);
+}
+
+/* ---- Calmer motion, when asked for ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  .showcase *,
+  .showcase *::before,
+  .backdrop * {
+    animation-duration: 0.01s !important;
+    animation-iteration-count: 1 !important;
+  }
+  .crt__image--cycling:not(:first-child) {
+    display: none;
+  }
+  .crt__image--cycling:first-child {
+    opacity: 1;
+  }
+}

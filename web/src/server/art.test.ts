@@ -63,6 +63,12 @@ describe("art thumbnails", () => {
     expect(await Bun.file(join(mediaRoot, "thumbs/512/ab/abcd-box.png-7.webp")).exists()).toBe(true);
   });
 
+  test("make small ones for the backdrop", async () => {
+    const response = await get("/art/64/ab/abcd-box.png?v=7");
+    const { width, height } = await new Bun.Image(await response.bytes()).metadata();
+    expect({ width, height }).toEqual({ width: 48, height: 64 });
+  });
+
   test("never enlarge small images", async () => {
     const response = await get("/art/512/ab/abcd-small.png");
     const { width, height } = await new Bun.Image(await response.bytes()).metadata();

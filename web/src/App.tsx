@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Carousel, type CarouselItem } from "./components/Carousel";
-import { DetailsPanel, type DetailsItem } from "./components/DetailsPanel";
+import { Backdrop } from "./components/showcase/Backdrop";
+import { Showcase, type Badge, type ShowcaseItem } from "./components/showcase/Showcase";
 import type { GameDetails, GameListItem, Platform } from "./library/api";
 import { fetchLetterJump, gameDetailsQuery, gamesPageQuery, platformsQuery } from "./library/queries";
 import { useGamePages } from "./library/useGamePages";
@@ -31,8 +32,17 @@ const GROW_MS = 280;
 /** Wheel scroll distance, in pixels, that moves the selection by one. */
 const WHEEL_STEP = 60;
 
-/** How long the selection must stay put to count as settled, for the details panel. */
+/** How long the selection must stay put to count as settled, for the showcase. */
 const SETTLE_MS = 250;
+
+/** Attract mode: after this long without input the wheel turns by itself, a step every ATTRACT_STEP_MS. */
+const ATTRACT_AFTER_MS = 90_000;
+const ATTRACT_STEP_MS = 7_000;
+
+/** Covers on a platform's wall, from its first page of games. */
+const WALL_COVERS = 24;
+
+const PLAY_ACTION = { button: "A", text: "TO PLAY" };
 
 const DESCRIPTION_CREDITS: Record<string, string> = {
   wikipedia: "From Wikipedia",
@@ -96,50 +106,64 @@ function gameCard(platform: Platform, index: number, game: GameListItem | null):
   return { name: game.title, subtitle: game.release_year ? String(game.release_year) : "", color, art: game.art };
 }
 
-function platformDetails(platform: Platform): DetailsItem {
+/** The 64 px thumbnail of a `/art/512/` one, for the blurred backdrop. */
+function backdropArt(url: string | null | undefined): string | null {
+  return url ? url.replace(/^\/art\/512\//, "/art/64/") : null;
+}
+
+function platformShowcase(platform: Platform, covers: string[]): ShowcaseItem {
   return {
+    kind: "platform",
+    key: `platform:${platform.id}`,
     title: platform.name,
-    subtitle: joined(platform.manufacturer, platform.release_year),
     accent: platform.color ?? undefined,
-    facts: [["Games", String(platform.game_count)]],
+    maker: platform.manufacturer,
+    year: platform.release_year,
+    count: platform.game_count,
+    covers,
+    backdrop: backdropArt(covers[0]),
   };
 }
 
-/** "1990-11" -> "November 1990"; "1990" stays. */
-function releaseDate(date: string | null): string | null {
-  if (!date) return null;
-  const [year, month, day] = date.split("-").map(Number);
-  if (!month) return String(year);
-  const at = new Date(Date.UTC(year!, month - 1, day ?? 1));
-  return at.toLocaleDateString("en-GB", { year: "numeric", month: "long", ...(day ? { day: "numeric" } : {}), timeZone: "UTC" });
+/** "1-4" -> "4P"; "1" -> "1P". */
+function playersBadge(players: string | null): string | null {
+  const counts = (players?.match(/\d+/g) ?? []).map(Number);
+  return counts.length ? `${Math.max(...counts)}P` : null;
 }
 
-/** A game's details, or what the wheel knows while they load. */
-function gameDetails(platform: Platform, row: GameListItem | null, details: GameDetails | undefined): DetailsItem | null {
-  if (!row) return null;
+/** A game's showcase from its details, or from what the wheel knows if they couldn't load. */
+function gameShowcase(platform: Platform, row: GameListItem, details: GameDetails | undefined): ShowcaseItem {
+  const base = { kind: "game" as const, key: `game:${row.id}`, accent: platform.color ?? undefined, action: PLAY_ACTION };
   if (!details) {
-    return { title: row.title, subtitle: joined(platform.name, row.release_year), accent: platform.color ?? undefined, art: row.art };
+    const badges: Badge[] = row.release_year ? [{ text: String(row.release_year), tone: "accent" }] : [];
+    return { ...base, title: row.title, box: row.art, screens: [], badges, backdrop: backdropArt(row.art) };
   }
-  const regions = [...new Set(details.files.map((file) => file.region).filter((region): region is string => Boolean(region)))];
-  const facts: [string, string | null][] = [
-    ["Released", releaseDate(details.release_date)],
-    ["Developer", details.developer],
-    ["Publisher", details.publisher],
-    ["Genre", details.genres.join(", ") || null],
-    ["Players", details.players],
-    ["Rating", details.rating],
-    ["Series", details.series],
-    [details.files.length === 1 ? "File" : "Files", regions.length ? `${details.files.length} (${regions.join(", ")})` : String(details.files.length)],
+  const images = (type: string) => details.images.filter((image) => image.type === type).map((image) => image.url);
+  // libretro's logos are cut out for display; others may come on a background.
+  const logo =
+    details.images.find((image) => image.type === "logo" && image.provider === "libretro")?.url ?? images("logo")[0];
+  const box = images("box-front")[0] ?? row.art;
+  const screens = [...images("title-screen"), ...images("screenshot")];
+  const year = details.release_date?.slice(0, 4);
+  const badges: (Badge | null)[] = [
+    year ? { text: year, tone: "accent" } : null,
+    ...[playersBadge(details.players)].map((text) => (text ? { text } : null)),
+    ...details.genres.slice(0, 2).map((text) => ({ text })),
+    details.rating ? { text: details.rating } : null,
   ];
   const source = details.description_source;
   return {
+    ...base,
     title: details.title,
-    subtitle: joined(details.platform, details.release_date?.slice(0, 4)),
-    accent: platform.color ?? undefined,
-    art: details.images.find((image) => image.type === "box-front")?.url ?? row.art,
-    facts: facts.filter((fact): fact is [string, string] => Boolean(fact[1])),
+    logo,
+    box,
+    screens,
+    badges: badges.filter((badge): badge is Badge => badge !== null),
+    byline: details.developer === details.publisher ? details.developer : joined(details.developer, details.publisher),
     description: details.description,
-    credit: source ? { text: DESCRIPTION_CREDITS[source] ?? `From ${source}`, url: details.description_url } : null,
+    credit: source ? (DESCRIPTION_CREDITS[source] ?? `From ${source}`) : null,
+    // Fanart is made to sit behind things; else gameplay, else the box.
+    backdrop: backdropArt(images("fanart")[0] ?? images("screenshot")[0] ?? box),
   };
 }
 
@@ -176,18 +200,29 @@ export function App() {
   const index = count > 0 ? posmod(selected, count) : 0;
   const game = useGamePages(platform?.id ?? null, count, index);
 
-  // The details panel follows the selection once the wheel has stopped, so
-  // scrolling past games doesn't fetch each one's details. While the wheel
-  // moves it keeps the last item, fading it out.
+  // The showcase follows the selection once the wheel has stopped, so
+  // scrolling past games doesn't fetch each one's details. It waits for what
+  // it shows to load, so the entrance plays once, with everything. While the
+  // wheel moves it keeps the last item, powered down.
   const selection = `${level}:${platform?.id ?? "platforms"}:${index}`;
   const settled = useSettled(selection, SETTLE_MS) === selection && wheelScale === 1;
   const settledGame = platform && settled ? game(index) : null;
+  const settledPlatform = !platform && settled ? (platforms[index] ?? null) : null;
   const details = useQuery({ ...gameDetailsQuery(settledGame?.id ?? 0), enabled: settledGame !== null });
-  let detailsItem: DetailsItem | null = null;
-  if (settled && platform) detailsItem = gameDetails(platform, settledGame, details.data);
-  else if (settled && platforms[index]) detailsItem = platformDetails(platforms[index]!);
-  const lastDetails = useRef<DetailsItem | null>(null);
-  if (detailsItem) lastDetails.current = detailsItem;
+  const wall = useQuery({
+    ...gamesPageQuery(settledPlatform?.id ?? 0, 0),
+    enabled: settledPlatform !== null && settledPlatform.game_count > 0,
+  });
+  let showcaseItem: ShowcaseItem | null = null;
+  if (settledGame && !details.isPending) {
+    showcaseItem = gameShowcase(platform!, settledGame, details.data);
+  } else if (settledPlatform && (settledPlatform.game_count === 0 || !wall.isPending)) {
+    const covers = (wall.data?.rows ?? []).flatMap((row) => (row.art ? [row.art] : [])).slice(0, WALL_COVERS);
+    showcaseItem = platformShowcase(settledPlatform, covers);
+  }
+  const lastShowcase = useRef<ShowcaseItem | null>(null);
+  if (showcaseItem) lastShowcase.current = showcaseItem;
+  const shownItem = showcaseItem ?? lastShowcase.current;
 
   const move = (steps: number) => {
     if (count < 2 || steps === 0) return;
@@ -293,6 +328,16 @@ export function App() {
     let repeatTimer = 0;
     let last = performance.now();
     let frame = 0;
+    // Attract mode: idle long enough and the wheel turns by itself, until any input.
+    let lastInput = last;
+    let lastAttract = last;
+    /** Notes input; true if it woke the cabinet from attract mode, and so does nothing else. */
+    const wake = () => {
+      const now = performance.now();
+      const attracting = now - lastInput > ATTRACT_AFTER_MS;
+      lastInput = now;
+      return attracting;
+    };
 
     const heldDirection = () =>
       transitioning.current ? 0 : Number(held.has("ArrowRight")) - Number(held.has("ArrowLeft"));
@@ -321,11 +366,19 @@ export function App() {
           repeatTimer += REPEAT_SLOWEST + (REPEAT_FASTEST - REPEAT_SLOWEST) * ramp * ramp;
         }
       }
+      if (now - lastInput > ATTRACT_AFTER_MS && now - lastAttract > ATTRACT_STEP_MS && !transitioning.current) {
+        lastAttract = now;
+        handlers.current.move(1);
+      }
       frame = requestAnimationFrame(update);
     };
     frame = requestAnimationFrame(update);
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (wake()) {
+        event.preventDefault();
+        return;
+      }
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         // Step on the press itself, so a tap shorter than a frame still counts.
         held.add(event.key);
@@ -352,7 +405,7 @@ export function App() {
     // Trackpads send many small wheel events, so add them up.
     let wheel = 0;
     const onWheel = (event: WheelEvent) => {
-      if (transitioning.current) return;
+      if (wake() || transitioning.current) return;
       wheel += Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
       const steps = Math.trunc(wheel / WHEEL_STEP);
       if (steps !== 0) {
@@ -396,6 +449,7 @@ export function App() {
 
   return (
     <div className="app">
+      <Backdrop src={shownItem?.backdrop ?? null} accent={shownItem?.accent} />
       <div className="app__browse">
         <Carousel
           key={level}
@@ -417,7 +471,7 @@ export function App() {
           </div>
         </div>
       </div>
-      <DetailsPanel className="app__details" item={detailsItem ?? lastDetails.current} shown={detailsItem !== null} />
+      <Showcase className="app__showcase" item={shownItem} shown={showcaseItem !== null} />
     </div>
   );
 }

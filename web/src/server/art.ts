@@ -12,8 +12,11 @@ import { dirname, join } from "node:path";
  * can be cached for good.
  */
 
-/** Longest side, in pixels, of the sizes the server makes. */
-export const ART_SIZES = [512] as const;
+/**
+ * Longest side, in pixels, of the sizes the server makes: 512 for the wheel
+ * and showcase, 64 for the blurred backdrop, where detail is lost anyway.
+ */
+export const ART_SIZES = [64, 512] as const;
 export type ArtSize = (typeof ART_SIZES)[number];
 
 const SHARD = /^[0-9a-z]{2}$/;
