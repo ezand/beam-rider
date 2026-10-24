@@ -207,7 +207,7 @@ describe("card art", () => {
     const nes = platformId(library, "nes");
     const ids = ["Alpha", "Bravo not downloaded", "Charlie logo only"].map((title) => addGame(library, nes, title).id);
     const image = library.db.prepare(
-      "INSERT INTO game_images (game_id, type, region, provider, url, crc32, path) VALUES (?, ?, ?, 'test', 'http://x', ?, ?)",
+      "INSERT INTO game_images (game_id, type, region, provider, url, crc32, path) VALUES (?1, ?2, ?3, 'test', 'http://x/' || ?4, ?4, ?5)",
     );
     image.run(ids[0]!, "box-front", "Japan", 11, "jp/jp.jpg");
     image.run(ids[0]!, "box-front", "North America", 22, "na/na.jpg");

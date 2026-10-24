@@ -9,7 +9,8 @@
     "start": "NODE_ENV=production bun src/index.ts",
     "typecheck": "bun check",
     "import:dats": "bun scripts/import-dats.ts",
-    "scan": "bun scripts/scan.ts"
+    "scan": "bun scripts/scan.ts",
+    "scrape": "bun scripts/scrape.ts"
   },
   "dependencies": {
     "7z-wasm": "1.2.0",

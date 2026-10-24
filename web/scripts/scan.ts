@@ -5,16 +5,21 @@
  *   bun run scan [--full]
  *
  * Only new and changed files are hashed; --full hashes everything again.
- * Run `bun run import:dats` first to identify games by checksum.
+ * Run `bun run import:dats` first to identify games by checksum. The games
+ * a scan adds are scraped afterwards, unless LIBRARY_SCRAPE_AFTER_SCAN=0.
  */
 
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { datsPath, libraryPath, romPlatformOverrides, romRoots, scanLockPath } from "../src/server/config";
+import {
+  datsPath, libraryPath, mediaPath, romPlatformOverrides, romRoots, scanLockPath, scrapeAfterScan, scraperIds, scrapeSettings,
+} from "../src/server/config";
 import { openLibrary } from "../src/server/library";
 import { openDats } from "../src/server/scanner/dat";
 import { acquireScanLock } from "../src/server/scanner/lock";
 import { scan } from "../src/server/scanner/scan";
+import { scrape } from "../src/server/scrapers/scrape";
+import { printScrapeSummary } from "./report";
 
 const roots = romRoots();
 mkdirSync(dirname(libraryPath()), { recursive: true });
@@ -50,12 +55,31 @@ const summary = await scan(library.db, {
     process.stdout.write(`\r  ${done.toLocaleString("en")} / ${total.toLocaleString("en")} files, ${hashed.toLocaleString("en")} hashed   `);
   },
 });
+const seconds = ((performance.now() - started) / 1000).toFixed(1);
+
+// Scrape the games this scan added.
+let scraped: { summary: Awaited<ReturnType<typeof scrape>>; seconds: string } | null = null;
+if (scrapeAfterScan() && summary.newGames.length && !stop.signal.aborted) {
+  console.log(`\nScraping the ${summary.newGames.length.toLocaleString("en")} new games …`);
+  const scrapeStarted = performance.now();
+  const result = await scrape(library.db, {
+    dats,
+    settings: scrapeSettings(),
+    providers: scraperIds(),
+    mediaRoot: mediaPath(),
+    gameIds: summary.newGames,
+    signal: stop.signal,
+    onProgress({ done, total }) {
+      process.stdout.write(`\r  ${done.toLocaleString("en")} / ${total.toLocaleString("en")} games   `);
+    },
+  });
+  scraped = { summary: result, seconds: ((performance.now() - scrapeStarted) / 1000).toFixed(1) };
+}
 library.db.run("PRAGMA optimize");
 library.close();
 dats?.close();
 locked.lock.release();
 
-const seconds = ((performance.now() - started) / 1000).toFixed(1);
 const count = (n: number) => n.toLocaleString("en");
 if (summary.cancelled) console.log("\nStopped early; the next scan carries on.");
 console.log(`\nScanned ${count(summary.files)} files in ${seconds} s (${count(summary.hashed)} hashed, ${count(summary.removed)} removed).`);
@@ -83,3 +107,5 @@ if (summary.errors.length) {
   console.log(`\n${summary.errors.length} files could not be read:`);
   for (const { path, error } of summary.errors.slice(0, 20)) console.log(`  ${path}: ${error}`);
 }
+
+if (scraped) printScrapeSummary(scraped.summary, scraped.seconds);

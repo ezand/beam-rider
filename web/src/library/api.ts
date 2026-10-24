@@ -27,3 +27,25 @@ export type LetterJump = { index: number | null };
 /** Rows per page. The server caps a page at MAX_PAGE_SIZE. */
 export const PAGE_SIZE = 100;
 export const MAX_PAGE_SIZE = 200;
+
+/** Everything about one game, for a details view. */
+export type GameDetails = {
+  id: number;
+  platform: string;
+  title: string;
+  release_date: string | null;
+  developer: string | null;
+  publisher: string | null;
+  players: string | null;
+  rating: string | null;
+  series: string | null;
+  genres: string[];
+  description: string | null;
+  /** Where the description came from ("wikipedia", "igdb", "hasheous-ai"), and its page, to credit it. */
+  description_source: string | null;
+  description_url: string | null;
+  /** Downloaded images, as thumbnail URLs. */
+  images: { type: string; provider: string; region: string | null; url: string }[];
+  files: { name: string; region: string | null; tags: string[]; match_method: string | null }[];
+  scraped_at: string | null;
+};

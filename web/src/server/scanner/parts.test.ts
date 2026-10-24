@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listZip, parseSevenZipListing, readZipEntry } from "./archives";
-import { parseDat } from "./dat";
+import { importMetadata, openDats, parseDat, parseMetadat } from "./dat";
 import { fakeRom, makeSevenZip, makeZip, RAR5_SAMPLE } from "./fixtures";
 import { fileStart, hashBytes, hashFile, headerBytes } from "./hash";
 import { extension, matchKey, parseRomName, stem } from "./names";
@@ -107,6 +107,70 @@ game (
       { game: 'Ballz "3D" (Disc 1) [!]', name: "Ballz (Track 1).bin", size: 100, crc32: 1, md5: null, sha1: null },
       { game: 'Ballz "3D" (Disc 1) [!]', name: "Ballz.cue", size: 10, crc32: 2, md5: null, sha1: null },
     ]);
+  });
+});
+
+describe("libretro's metadat lists", () => {
+  const developer = `clrmamepro (
+	name "Nintendo - Super Nintendo Entertainment System"
+)
+
+game (
+	comment "Super Mario World (USA)"
+	developer "Nintendo EAD"
+	rom ( crc B19ED489 )
+)
+
+game (
+	comment "Two Releases (Europe)"
+	developer "Someone"
+	rom ( crc 00000001 )
+	rom ( crc 00000002 )
+)
+
+game (
+	comment "No CRC (Japan)"
+	developer "Nobody"
+	serial "SHVC-XX"
+)
+`;
+
+  test("parse into a field per game and CRC", () => {
+    expect(parseMetadat(developer)).toEqual([
+      { game: "Super Mario World (USA)", crc32: 0xb19ed489, field: "developer", value: "Nintendo EAD" },
+      { game: "Two Releases (Europe)", crc32: 1, field: "developer", value: "Someone" },
+      { game: "Two Releases (Europe)", crc32: 2, field: "developer", value: "Someone" },
+      { game: "No CRC (Japan)", crc32: null, field: "developer", value: "Nobody" },
+      { game: "No CRC (Japan)", crc32: null, field: "serial", value: "SHVC-XX" },
+    ]);
+  });
+
+  test("import for the platforms that have them, replacing what was there", async () => {
+    const served: string[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const path = decodeURIComponent(new URL(req.url).pathname.slice(1));
+        served.push(path);
+        return path === "developer/Nintendo - Super Nintendo Entertainment System.dat"
+          ? new Response(developer)
+          : new Response("missing", { status: 404 });
+      },
+    });
+    try {
+      const dats = openDats(":memory:")!;
+      const snes = PLATFORMS.filter((p) => p.slug === "snes");
+      const run = () => importMetadata(dats, join(folder, "meta"), { baseUrl: server.url.href, platforms: snes, maxAgeMs: 0 });
+      expect(await run()).toEqual([{ platform: "snes", lists: 1, entries: 5, errors: [] }]);
+      expect(await run()).toEqual([{ platform: "snes", lists: 1, entries: 5, errors: [] }]);
+      expect(dats.query("SELECT COUNT(*) AS n FROM dat_meta").get()).toEqual({ n: 5 });
+      expect(dats.query("SELECT value FROM dat_meta WHERE platform = 'snes' AND crc32 = ?").get(0xb19ed489))
+        .toEqual({ value: "Nintendo EAD" });
+      expect(served).toContain("genre/Nintendo - Super Nintendo Entertainment System.dat");
+      dats.close();
+    } finally {
+      server.stop();
+    }
   });
 });
 

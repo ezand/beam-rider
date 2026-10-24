@@ -6,18 +6,23 @@ import { PAGE_SIZE, type GamesPage, type LetterJump } from "./library/api";
 import { createArtHandler } from "./server/art";
 import {
   artRegions, datsPath, libraryPath as configuredLibraryPath, mediaPath, romPlatformOverrides, romRoots, scanLockPath,
+  scrapeAfterScan, scraperIds, scrapeSettings,
 } from "./server/config";
 import { openLibrary } from "./server/library";
-import { createScanManager, scanRoutes } from "./server/scanner/manager";
+import { createJobManager, jobRoutes } from "./server/scanner/manager";
 
 const libraryPath = configuredLibraryPath();
 mkdirSync(dirname(libraryPath), { recursive: true });
 const library = openLibrary(libraryPath, { artRegions: artRegions() });
-const scans = createScanManager({
+const jobs = createJobManager({
   libraryPath,
   datsPath: datsPath(),
+  mediaPath: mediaPath(),
   roots: romRoots(),
   overrides: romPlatformOverrides(),
+  scrapers: scraperIds(),
+  scrape: scrapeSettings(),
+  scrapeAfterScan: scrapeAfterScan(),
   lockPath: scanLockPath(),
 });
 
@@ -36,8 +41,9 @@ const server = serve({
 
     "/api/platforms": () => Response.json(library.platforms()),
 
-    // Scans of the ROM folders, run in a worker (see server/scanner/manager.ts).
-    ...scanRoutes(scans),
+    // Scans of the ROM folders and scrapes of the games, run in a worker
+    // (see server/scanner/manager.ts).
+    ...jobRoutes(jobs),
 
     // Card art, shrunk from the downloaded originals (see server/art.ts).
     "/art/:size/:shard/:file": createArtHandler(mediaPath()),
@@ -51,6 +57,12 @@ const server = serve({
         return badRequest("Expected a platform id and integer offset and limit");
       }
       return Response.json({ offset, rows: library.gamesPage(platform, offset, limit) } satisfies GamesPage);
+    },
+
+    "/api/games/:id": (req) => {
+      const id = integer(req.params.id);
+      const game = id === null ? null : library.gameDetails(id);
+      return game ? Response.json(game) : Response.json({ error: "No such game" }, { status: 404 });
     },
 
     "/api/platforms/:id/letter": (req) => {

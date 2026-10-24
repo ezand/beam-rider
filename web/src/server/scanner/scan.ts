@@ -55,6 +55,8 @@ export type ScanSummary = {
   unsupported: { folder: string; reason: string }[];
   files: number;
   games: number;
+  /** The games this scan added, for scraping. */
+  newGames: number[];
   hashed: number;
   removed: number;
   /** Files identified in a DAT, by how. */
@@ -87,6 +89,9 @@ type StoredFile = {
 };
 
 type Fingerprint = Pick<StoredFile, "entry" | "crc32" | "md5" | "sha1" | "header_bytes"> & { size: number };
+
+/** Whether a file name is an NKit image ("Game.nkit.iso", "Game.nkit.gcz"). */
+const isNkit = (name: string) => /\.nkit\.[a-z0-9]+$/i.test(name);
 
 const IGNORED_DIRECTORIES = new Set(["media", "images", "videos", "manuals", "saves", "states", "screenshots", "snap", "thumbnails"]);
 
@@ -158,7 +163,7 @@ async function findCandidates(folder: string, platform: PlatformInfo): Promise<C
 export async function scan(db: Database, options: ScanOptions): Promise<ScanSummary> {
   const summary: ScanSummary = {
     missingRoots: [], platforms: [], unknownFolders: [], looseFiles: [], unsupported: [], files: 0, games: 0,
-    hashed: 0, removed: 0,
+    newGames: [], hashed: 0, removed: 0,
     identified: { hash: 0, "dat-name": 0 }, unidentified: 0, cancelled: false, errors: [],
   };
   const now = new Date().toISOString();
@@ -221,6 +226,11 @@ export async function scan(db: Database, options: ScanOptions): Promise<ScanSumm
   const byCrc = dats?.query<{ game_name: string }, [string, number, number]>(`
     SELECT r.game_name FROM dat_roms r JOIN dats d ON d.id = r.dat_id
     WHERE d.platform = ?1 AND r.crc32 = ?2 AND r.size = ?3 LIMIT 1`);
+  // NKit images (shrunk GameCube and Wii discs) keep the original disc's CRC32
+  // but not its size, so they're matched by CRC alone.
+  const byCrcOnly = dats?.query<{ game_name: string }, [string, number]>(`
+    SELECT r.game_name FROM dat_roms r JOIN dats d ON d.id = r.dat_id
+    WHERE d.platform = ?1 AND r.crc32 = ?2 LIMIT 1`);
   const byDatName = dats?.query<{ game_name: string }, [string, string]>(`
     SELECT r.game_name FROM dats d JOIN dat_roms r ON r.dat_id = d.id
     WHERE d.platform = ?1 AND r.game_name = ?2 LIMIT 1`);
@@ -298,8 +308,10 @@ export async function scan(db: Database, options: ScanOptions): Promise<ScanSumm
     let datName: string | null = null;
 
     if (print) {
+      const nkit = isNkit(print.entry ?? candidate.path);
       const hit = (print.sha1 && bySha1?.get(platform.slug, print.sha1)) ||
-        (print.crc32 !== null && byCrc?.get(platform.slug, print.crc32, print.size));
+        (print.crc32 !== null && byCrc?.get(platform.slug, print.crc32, print.size)) ||
+        (nkit && print.crc32 !== null && byCrcOnly?.get(platform.slug, print.crc32));
       if (hit) (method = "hash"), (datName = hit.game_name);
     }
     const names = [stem(candidate.path)];
@@ -327,6 +339,7 @@ export async function scan(db: Database, options: ScanOptions): Promise<ScanSumm
       const year = parsed.tags.find((tag) => /^(19|20)\d\d$/.test(tag)) ?? null;
       gameId = insertGame.get(job.platformId, key, parsed.title, year, now)!.id;
       keys.set(key, gameId);
+      summary.newGames.push(gameId);
     }
     return { gameId, method, datName, parsed };
   }
@@ -373,7 +386,8 @@ export async function scan(db: Database, options: ScanOptions): Promise<ScanSumm
         summary.errors.push({ path: job.candidate.path, error: error instanceof Error ? error.message : String(error) });
       }
       summary.files++;
-      options.onProgress?.({ done: ++done, total: jobs.length, hashed: summary.hashed });
+      done++;
+      options.onProgress?.({ done, total: jobs.length, hashed: summary.hashed });
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, options.concurrency ?? 4) }, worker));
@@ -399,5 +413,8 @@ export async function scan(db: Database, options: ScanOptions): Promise<ScanSumm
     db.run(`DELETE FROM games WHERE NOT EXISTS (SELECT 1 FROM rom_files f WHERE f.game_id = games.id)`);
   })();
   summary.games = (db.query(`SELECT COUNT(*) AS n FROM games`).get() as { n: number }).n;
+  // A cancelled scan's cleanup can remove games it added.
+  const exists = db.query<{ id: number }, [number]>(`SELECT id FROM games WHERE id = ?`);
+  summary.newGames = summary.newGames.filter((id) => exists.get(id));
   return summary;
 }

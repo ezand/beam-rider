@@ -17,6 +17,7 @@ const zelda = fakeRom(11, 1024 * 1024);
 const fzero = fakeRom(12, 512 * 1024);
 const homebrew = fakeRom(13, 32 * 1024);
 const starfox = fakeRom(17, 8192);
+const nkit = fakeRom(18, 4096);
 
 const datRom = (game: string, file: string, bytes: Uint8Array) => {
   const { crc32, md5, sha1 } = hashBytes(bytes);
@@ -32,6 +33,10 @@ const DATS: Record<string, string> = {
     datRom("Star Fox (USA)", "Star Fox (USA).sfc", starfox),
   "no-intro/Sega - Mega Drive - Genesis.dat": `clrmamepro (\n\tname "Sega - Mega Drive - Genesis"\n)\n` +
     `game (\n\tname "Rar Test (World)"\n\trom ( name "Rar Test (World).bin" size ${RAR5_SAMPLE.size} crc ${RAR5_SAMPLE.crc32.toString(16).toUpperCase()} )\n)\n`,
+  // The disc is 4.7 GB; its NKit image is smaller but keeps the disc's CRC32.
+  "redump/Nintendo - Wii.dat": `clrmamepro (\n\tname "Nintendo - Wii"\n)\n` +
+    `game (\n\tname "Wii Game (USA)"\n\trom ( name "Wii Game (USA).iso" size 4699979776 ` +
+    `crc ${Bun.hash.crc32(nkit).toString(16).toUpperCase().padStart(8, "0")} )\n)\n`,
   "redump/Sony - PlayStation.dat": `clrmamepro (\n\tname "Sony - PlayStation"\n)\n` +
     `game (\n\tname "Final Fantasy VII (USA) (Disc 1)"\n\trom ( name "Final Fantasy VII (USA) (Disc 1).cue" size 10 crc 00000001 )\n)\n`,
 };
@@ -66,10 +71,11 @@ beforeAll(async () => {
   });
   const results = await importDats(dats, datFolder, {
     baseUrl: server.url.href,
-    platforms: PLATFORMS.filter((p) => ["snes", "psx", "megadrive"].includes(p.slug)),
+    platforms: PLATFORMS.filter((p) => ["snes", "psx", "megadrive", "wii"].includes(p.slug)),
   });
   expect(results.map((r) => [r.name, r.roms, r.error ?? null])).toEqual([
     [`Nintendo - ${SNES}`, 4, null],
+    ["Nintendo - Wii", 1, null],
     ["Sega - Mega Drive - Genesis", 1, null],
     ["Sony - PlayStation", 1, null],
   ]);
@@ -85,6 +91,9 @@ beforeAll(async () => {
   await makeSevenZip(join(root, "snes", "starfox.7z"), [join(root, "starfox-source", "sf.sfc")]);
   await rm(join(root, "starfox-source"), { recursive: true });
   await write("megadrive/rar game.rar", RAR5_SAMPLE.bytes);
+  await write("nkit-source/wiigame.nkit.iso", nkit);
+  await makeSevenZip(join(root, "wii", "some wii game.7z"), [join(root, "nkit-source", "wiigame.nkit.iso")]);
+  await rm(join(root, "nkit-source"), { recursive: true });
   await write("snes/notes.txt", "not a game");
   await write("snes/.DS_Store", "hidden");
   await write("snes/media/Super Mario World (USA).png", "art, not a game");
@@ -115,11 +124,12 @@ describe("scanning a collection", () => {
     expect(library.platforms()).toEqual([]);
     const summary = await run();
     expect(summary).toMatchObject({
-      files: 10,
-      games: 9,
-      hashed: 8,
+      files: 11,
+      games: 10,
+      hashed: 9,
       removed: 0,
-      identified: { hash: 5, "dat-name": 1 },
+      identified: { hash: 6, "dat-name": 1 },
+      cancelled: false,
       unidentified: 4,
       errors: [],
       unknownFolders: [join(root, "Holiday photos")],
@@ -133,9 +143,11 @@ describe("scanning a collection", () => {
     ]);
     expect(titles(library, "psx")).toEqual(["Crash Bandicoot", "Final Fantasy VII"]);
     expect(titles(library, "megadrive")).toEqual(["Rar Test", "Sonic1Final"]);
+    expect(titles(library, "wii")).toEqual(["Wii Game"]);
     expect(library.platforms().map((p) => [p.name, p.game_count])).toEqual([
-      ["Mega Drive", 2], ["PlayStation", 2], ["SNES", 5],
+      ["Mega Drive", 2], ["PlayStation", 2], ["SNES", 5], ["Wii", 1],
     ]);
+    expect(summary.newGames).toHaveLength(10);
 
     const files = library.db.query(`SELECT f.path, f.entry, f.members, f.match_method, f.dat_name, f.title, f.region, f.tags,
       f.header_bytes, f.crc32, g.title AS game FROM rom_files f JOIN games g ON g.id = f.game_id ORDER BY f.path`).all() as Record<string, unknown>[];
@@ -162,14 +174,16 @@ describe("scanning a collection", () => {
     expect(file("Crash Bandicoot (USA).chd")).toMatchObject({ match_method: null, region: "USA" });
     expect(file("starfox.7z")).toMatchObject({ match_method: "hash", entry: "sf.sfc", dat_name: "Star Fox (USA)" });
     expect(file("rar game.rar")).toMatchObject({ match_method: "hash", entry: "test.bin", dat_name: "Rar Test (World)" });
+    // Matched by CRC alone, since NKit images keep the disc's CRC but not its size.
+    expect(file("some wii game.7z")).toMatchObject({ match_method: "hash", entry: "wiigame.nkit.iso", dat_name: "Wii Game (USA)" });
     // Not the cue sheets or tracks of the m3u, the art, the text file or hidden files.
-    expect(files).toHaveLength(10);
+    expect(files).toHaveLength(11);
   });
 
   test("a second scan hashes nothing and writes nothing", async () => {
     const before = library.db.query("SELECT id, scanned_at FROM rom_files ORDER BY id").all();
     const summary = await run();
-    expect(summary).toMatchObject({ files: 10, hashed: 0, removed: 0, games: 9 });
+    expect(summary).toMatchObject({ files: 11, hashed: 0, removed: 0, games: 10, newGames: [] });
     expect(library.db.query("SELECT id, scanned_at FROM rom_files ORDER BY id").all()).toEqual(before);
   });
 
@@ -177,7 +191,7 @@ describe("scanning a collection", () => {
     await rm(join(root, "snes/Homebrew Thing (PD).sfc"));
     await rename(join(root, "snes/Super Mario World (USA).sfc"), join(root, "snes/SMW.sfc"));
     const summary = await run();
-    expect(summary).toMatchObject({ files: 9, hashed: 1, removed: 2, games: 8 });
+    expect(summary).toMatchObject({ files: 10, hashed: 1, removed: 2, games: 9, newGames: [] });
     expect(titles(library, "snes")).toEqual(["F-Zero", "The Legend of Zelda - A Link to the Past", "Star Fox", "Super Mario World"]);
     // The renamed file is still identified by its checksum, and still with its Europe sibling.
     expect(library.db.query(`SELECT COUNT(*) AS n FROM rom_files f JOIN games g ON g.id = f.game_id

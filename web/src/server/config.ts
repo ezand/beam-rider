@@ -47,3 +47,15 @@ export const datsPath = () => resolve(WEB_ROOT, process.env.LIBRARY_DATS_PATH ||
 
 /** The lock file that keeps scans to one at a time, next to the library. */
 export const scanLockPath = () => libraryPath() + ".scan-lock";
+
+/** The scrapers to use (LIBRARY_SCRAPERS, comma-separated ids), or undefined for all. */
+export const scraperIds = () => {
+  const ids = process.env.LIBRARY_SCRAPERS?.split(",").map((id) => id.trim()).filter(Boolean);
+  return ids?.length ? ids : undefined;
+};
+
+/** Settings scrapers use. An empty HASHEOUS_CLIENT_API_KEY skips the IGDB lookup. */
+export const scrapeSettings = () => ({ hasheousClientKey: process.env.HASHEOUS_CLIENT_API_KEY?.trim() || undefined });
+
+/** Whether scans scrape the games they add (LIBRARY_SCRAPE_AFTER_SCAN, default on). */
+export const scrapeAfterScan = () => !/^(0|false|no|off)$/i.test(process.env.LIBRARY_SCRAPE_AFTER_SCAN?.trim() ?? "");

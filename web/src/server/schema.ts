@@ -150,6 +150,36 @@ export const MIGRATIONS: string[][] = [
     `CREATE INDEX playlist_games_by_order ON playlist_games(playlist_id, sort_order)`,
     `CREATE INDEX playlist_games_by_game ON playlist_games(game_id)`,
   ],
+
+  // 2: scrapers.
+  [
+    // `field_sources` is JSON: each scraped field's provider, or "user" for
+    // fields the user has edited, which scrapers then leave alone.
+    // `description_url` links to where the description came from, such as
+    // its Wikipedia article.
+    `ALTER TABLE games ADD COLUMN series TEXT`,
+    `ALTER TABLE games ADD COLUMN description_url TEXT`,
+    `ALTER TABLE games ADD COLUMN field_sources TEXT`,
+    `ALTER TABLE games ADD COLUMN scraped_at TEXT`,
+
+    // What each provider made of each game, so reruns skip providers that
+    // already ran and a newly added provider runs on its own. `links` is
+    // JSON: the game's ids or pages elsewhere that the provider found (such
+    // as its Wikipedia article), which later providers start from.
+    `CREATE TABLE game_scrapes (
+      game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('found', 'not-found', 'error')),
+      external_id TEXT,
+      url TEXT,
+      links TEXT,
+      error TEXT,
+      scraped_at TEXT NOT NULL,
+      PRIMARY KEY (game_id, provider)
+    ) WITHOUT ROWID`,
+
+    `CREATE UNIQUE INDEX game_images_unique ON game_images(game_id, provider, type, url)`,
+  ],
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

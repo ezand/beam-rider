@@ -17,7 +17,8 @@ The web version of the BeamRider frontend (Bun server, React, CSS 3D). `README.m
 - The ROM scanner (`src/server/scanner/`) never trusts file names alone when a checksum can decide. Supporting a new platform means adding one entry to `platforms.ts` (folders, DATs, extensions, kind, header). Identification runs on every scan from stored hashes, so keep it cheap and keep hashing for new or changed files only.
 - Real ROMs never go into tests or the repo: tests build fake files and their own DATs (`src/server/scanner/fixtures.ts`).
 - Archives are read in-process: zips by `archives.ts`, 7z and RAR by 7-Zip compiled to WebAssembly (`sevenzip.ts`). Don't add dependencies on tools that have to be installed.
-- The server runs scans in a worker (`src/server/scanner/manager.ts`), never on its own thread, and one at a time through `lock.ts`. Scanned folders come from settings, never from requests.
+- The server runs scans and scrapes in a worker (`src/server/scanner/manager.ts`), never on its own thread, and one at a time through `lock.ts`. Scanned folders and scrapers come from settings, never from requests.
+- Scrapers (`src/server/scrapers/`) only look things up; `scrape.ts` writes. A new provider implements `Scraper` (`types.ts`), returns neutral fields and image types, and gets a place in `FIELD_PRIORITY` (`merge.ts`) and rate limits in `http.ts`. Never overwrite fields whose source is `"user"`, and keep `description_url` for attribution. Tests use fake servers, never the real providers.
 - An empty or missing database, setting or media folder is a normal state with a sensible default, not an error.
 - `data/` holds the library, the DATs and downloaded art. It's gitignored; don't commit any of it. Tests build their own data.
 - Card art thumbnails are made at request time by `src/server/art.ts`. Validate any path from a request before it touches the filesystem, and don't hand request strings to `Bun.Image`.

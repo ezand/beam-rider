@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
-import { MAX_PAGE_SIZE, type GameListItem, type Platform } from "../library/api";
+import { basename } from "node:path";
+import { MAX_PAGE_SIZE, type GameDetails, type GameListItem, type Platform } from "../library/api";
 import { artUrl } from "./art";
 import { PLATFORMS } from "./scanner/platforms";
 import { migrate } from "./schema";
@@ -43,14 +44,14 @@ export function openLibrary(path: string, { artRegions = DEFAULT_ART_REGIONS }: 
 
   // The page is picked first, so art is looked up for its rows only and not
   // for the ones OFFSET skips. A game's card art is its best downloaded front
-  // box, by region. `art` is its path and CRC (the URL's version), separated
+  // box: libretro's (scans of the real boxes) first, then by region. `art` is its path and CRC (the URL's version), separated
   // by a tab.
   type PageRow = Omit<GameListItem, "art"> & { art: string | null };
   const pageQuery = db.query<PageRow, { platform: number; limit: number; offset: number; regions: string }>(`
     SELECT p.id, p.title, p.release_year, (
       SELECT i.path || char(9) || coalesce(i.crc32, 0) FROM game_images i
       WHERE i.game_id = p.id AND i.type = '${CARD_ART_TYPE}' AND i.path IS NOT NULL
-      ORDER BY coalesce((SELECT key FROM json_each($regions) WHERE value = i.region), 1000), i.id
+      ORDER BY i.provider != 'libretro', coalesce((SELECT key FROM json_each($regions) WHERE value = i.region), 1000), i.id
       LIMIT 1
     ) AS art
     FROM (
@@ -85,6 +86,20 @@ export function openLibrary(path: string, { artRegions = DEFAULT_ART_REGIONS }: 
     ORDER BY sort_key DESC LIMIT 1`);
 
   const countBelow = (platform: number, key: string) => countBelowQuery.get({ platform, key })!.n;
+
+  // A game's details.
+  type DetailsRow = Omit<GameDetails, "genres" | "images" | "files" | "description_source"> & { field_sources: string | null };
+  const detailsQuery = db.query<DetailsRow, [number]>(`
+    SELECT g.id, coalesce(nullif(trim(p.custom_name), ''), p.name) AS platform, g.title, g.release_date, g.developer,
+      g.publisher, g.players, g.rating, g.series, g.description, g.description_url, g.field_sources, g.scraped_at
+    FROM games g JOIN platforms p ON p.id = g.platform_id WHERE g.id = ?`);
+  const genresQuery = db.query<{ name: string }, [number]>(`
+    SELECT n.name FROM game_genres gg JOIN genres n ON n.id = gg.genre_id WHERE gg.game_id = ? ORDER BY n.name`);
+  const imagesQuery = db.query<{ type: string; provider: string; region: string | null; path: string; crc32: number | null }, [number]>(`
+    SELECT type, provider, region, path, crc32 FROM game_images WHERE game_id = ? AND path IS NOT NULL
+    ORDER BY type, provider != 'libretro', id`);
+  const filesQuery = db.query<{ path: string; region: string | null; tags: string | null; match_method: string | null }, [number]>(`
+    SELECT path, region, tags, match_method FROM rom_files WHERE game_id = ? ORDER BY path`);
 
   return {
     db,
@@ -126,6 +141,24 @@ export function openLibrary(path: string, { artRegions = DEFAULT_ART_REGIONS }: 
       const target = initial(previous!.sort_key);
       if (target === letter) return null;
       return countBelow(platform, target);
+    },
+
+    /** Everything about game `id`, or null if there's no such game. */
+    gameDetails(id: number): GameDetails | null {
+      const row = detailsQuery.get(id);
+      if (!row) return null;
+      const { field_sources, ...game } = row;
+      return {
+        ...game,
+        description_source: field_sources ? (JSON.parse(field_sources).description ?? null) : null,
+        genres: genresQuery.all(id).map((genre) => genre.name),
+        images: imagesQuery.all(id).map((image) => ({
+          type: image.type, provider: image.provider, region: image.region, url: artUrl(image.path, image.crc32),
+        })),
+        files: filesQuery.all(id).map((file) => ({
+          name: basename(file.path), region: file.region, tags: file.tags ? JSON.parse(file.tags) : [], match_method: file.match_method,
+        })),
+      };
     },
 
     close: () => db.close(),
