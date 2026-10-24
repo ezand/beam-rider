@@ -1,18 +1,20 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Carousel, type CarouselItem } from "./components/Carousel";
-import library from "./data/library.json";
+import type { GameListItem, Platform } from "./library/api";
+import { fetchLetterJump, gamesPageQuery, platformsQuery } from "./library/queries";
+import { useGamePages } from "./library/useGamePages";
 import "./index.css";
 
 /**
  * Two-level browser, as in the Godot frontend's main.gd: a carousel of
- * platforms, then a carousel of that platform's games.
+ * platforms, then a carousel of that platform's games. Data comes from the
+ * library API; games are loaded a page at a time around the selection.
  */
-
-type Game = { name: string; sortName: string; year?: number };
-type Platform = { name: string; maker: string; year?: number; color: string; games: Game[] };
 
 const PLATFORM_ITEM_SIZE = { width: 1.6, height: 1.0, depth: 0.2 };
 const GAME_ITEM_SIZE = { width: 1.0, height: 1.4, depth: 0.15 };
+const DEFAULT_COLOR = "#888888";
 
 // Holding left/right repeats, speeding up the longer it is held. In seconds.
 const REPEAT_DELAY = 0.35;
@@ -28,30 +30,13 @@ const GROW_MS = 280;
 /** Wheel scroll distance, in pixels, that moves the selection by one. */
 const WHEEL_STEP = 60;
 
-/** "The Legend of Zelda" sorts as "legend of zelda", like the library database. */
-function sortName(name: string): string {
-  const lower = name.trim().toLowerCase();
-  for (const article of ["the ", "a ", "an "]) {
-    if (lower.startsWith(article) && lower.length > article.length) {
-      return lower.slice(article.length);
-    }
-  }
-  return lower;
-}
-
-const platforms: Platform[] = library.platforms.map((platform) => ({
-  ...platform,
-  games: platform.games
-    .map((game) => ({ name: game.name, sortName: sortName(game.name), year: game.year }))
-    .sort((a, b) => (a.sortName < b.sortName ? -1 : a.sortName > b.sortName ? 1 : 0)),
-}));
-
 function posmod(a: number, n: number): number {
   return ((a % n) + n) % n;
 }
 
-function year(entry: { year?: number }): string {
-  return entry.year ? String(entry.year) : "";
+/** The present parts, joined with a dot. */
+function joined(...parts: (string | number | null | undefined)[]): string {
+  return parts.filter((part) => part != null && part !== "").join("  ·  ");
 }
 
 function hexToHsv(hex: string): [number, number, number] {
@@ -79,22 +64,33 @@ function hsvToCss(h: number, s: number, v: number): string {
 }
 
 function platformCard(platform: Platform): CarouselItem {
-  return { name: platform.name, subtitle: `${platform.maker} · ${year(platform)}`, color: platform.color };
+  return {
+    name: platform.name,
+    subtitle: [platform.manufacturer, platform.release_year].filter(Boolean).join(" · "),
+    color: platform.color ?? DEFAULT_COLOR,
+  };
 }
 
-/** Games vary their platform's color a little so neighbours stand apart. */
-function gameCard(platform: Platform, index: number): CarouselItem {
-  const game = platform.games[index]!;
-  const [h, s, v] = hexToHsv(platform.color);
-  const color = hsvToCss(
-    posmod(h + (index % 7) * 0.04, 1),
-    s * 0.85,
-    Math.min(1, v * (0.75 + 0.1 * (index % 3))),
-  );
-  return { name: game.name, subtitle: year(game), color };
+/**
+ * Games vary their platform's color a little so neighbours stand apart. A
+ * game whose page is still loading shows as a blank card in its color.
+ */
+function gameCard(platform: Platform, index: number, game: GameListItem | null): CarouselItem {
+  const base = platform.color ?? DEFAULT_COLOR;
+  let color = base;
+  if (/^#[0-9a-f]{6}$/i.test(base)) {
+    const [h, s, v] = hexToHsv(base);
+    color = hsvToCss(posmod(h + (index % 7) * 0.04, 1), s * 0.85, Math.min(1, v * (0.75 + 0.1 * (index % 3))));
+  }
+  if (!game) return { name: "", color };
+  return { name: game.title, subtitle: game.release_year ? String(game.release_year) : "", color, art: game.art };
 }
 
 export function App() {
+  const queryClient = useQueryClient();
+  const platformsResult = useQuery(platformsQuery());
+  const platforms = platformsResult.data ?? [];
+
   /** Index into `platforms` being browsed, or -1 while browsing platforms. */
   const [currentPlatform, setCurrentPlatform] = useState(-1);
   /** Unwrapped, so the wheel keeps turning the same way when it wraps. */
@@ -105,10 +101,13 @@ export function App() {
   /** Bumped on each level change so the carousel starts fresh, not mid-spin. */
   const [level, setLevel] = useState(0);
   const transitioning = useRef(false);
+  /** The level a letter jump request was made on, while one is in flight. */
+  const jumping = useRef<number | null>(null);
 
-  const platform = currentPlatform === -1 ? null : platforms[currentPlatform]!;
-  const count = platform ? platform.games.length : platforms.length;
-  const index = posmod(selected, count);
+  const platform = currentPlatform === -1 ? null : (platforms[currentPlatform] ?? null);
+  const count = platform ? platform.game_count : platforms.length;
+  const index = count > 0 ? posmod(selected, count) : 0;
+  const game = useGamePages(platform?.id ?? null, count, index);
 
   const move = (steps: number) => {
     if (count < 2 || steps === 0) return;
@@ -116,14 +115,29 @@ export function App() {
     setNotice(null);
   };
 
-  const jumpTo = (target: number) => move(target - index);
-
-  const initial = (i: number) =>
-    (platform ? platform.games[i]!.sortName : platforms[i]!.name).charAt(0).toUpperCase();
+  /** Moves to `target` from wherever the selection is by the time it runs. */
+  const jumpTo = (target: number) => {
+    setSelected((s) => s + target - posmod(s, count));
+    setNotice(null);
+  };
 
   /** Jumps to the first item whose name starts with the next (or previous) letter. */
-  const jumpLetter = (direction: number) => {
+  const jumpLetter = (direction: 1 | -1) => {
     if (count < 2) return;
+    if (platform) {
+      // The server knows the whole list; ask it from the selected game.
+      const current = game(index);
+      if (!current || jumping.current !== null) return;
+      jumping.current = level;
+      fetchLetterJump(platform.id, current.id, direction)
+        .then(({ index: target }) => {
+          if (target !== null && jumping.current === level) jumpTo(target);
+        })
+        .catch(() => setNotice("Couldn't reach the library"))
+        .finally(() => (jumping.current = null));
+      return;
+    }
+    const initial = (i: number) => platforms[i]!.name.charAt(0).toUpperCase();
     const current = initial(index);
     let target = index;
     for (let i = 0; i < count; i++) {
@@ -142,6 +156,7 @@ export function App() {
   /** Shrinks the wheel away, runs `rebuild`, then grows it back. */
   const transition = (rebuild: () => void) => {
     transitioning.current = true;
+    jumping.current = null;
     setWheelScale(0.01);
     setTimeout(() => {
       rebuild();
@@ -159,17 +174,21 @@ export function App() {
 
   const activate = () => {
     if (!platform) {
-      const chosen = platforms[index]!;
-      if (chosen.games.length === 0) {
+      const chosen = platforms[index];
+      if (!chosen) return;
+      if (chosen.game_count === 0) {
         setNotice(`No games for ${chosen.name} yet`);
         return;
       }
+      // Start on the first page while the wheel shrinks away.
+      void queryClient.prefetchQuery(gamesPageQuery(chosen.id, 0));
       transition(() => {
         setCurrentPlatform(index);
         setSelected(0);
       });
     } else {
-      setNotice(`Launching ${platform.games[index]!.name}…`);
+      const current = game(index);
+      if (current) setNotice(`Launching ${current.title}…`);
     }
   };
 
@@ -277,13 +296,22 @@ export function App() {
 
   let title = "PLATFORMS";
   let info = "";
-  if (!platform) {
-    const current = platforms[index];
-    if (current) info = `${current.name}  ·  ${current.games.length} games`;
+  if (platformsResult.isPending) {
+    info = "Loading library…";
+  } else if (platformsResult.isError) {
+    info = "Couldn't load the library";
+  } else if (platforms.length === 0) {
+    info = "The library is empty";
+  } else if (!platform) {
+    const current = platforms[index]!;
+    info = joined(current.name, `${current.game_count} games`);
   } else {
-    const game = platform.games[index]!;
+    const current = game(index);
+    const position = `${index + 1} / ${count}`;
     title = `PLATFORMS  ›  ${platform.name.toUpperCase()}`;
-    info = `${game.name}  ·  ${year(game)}      ${index + 1} / ${count}`;
+    info = current
+      ? `${joined(current.title, current.release_year)}      ${position}`
+      : `Loading…      ${position}`;
   }
 
   return (
@@ -291,7 +319,7 @@ export function App() {
       <Carousel
         key={level}
         count={count}
-        getItem={platform ? (i) => gameCard(platform, i) : (i) => platformCard(platforms[i]!)}
+        getItem={platform ? (i) => gameCard(platform, i, game(i)) : (i) => platformCard(platforms[i]!)}
         selected={selected}
         itemSize={platform ? GAME_ITEM_SIZE : PLATFORM_ITEM_SIZE}
         itemSpacing={platform ? 1.5 : 2.1}

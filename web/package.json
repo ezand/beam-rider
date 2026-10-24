@@ -7,16 +7,20 @@
     "dev": "bun --hot src/index.ts",
     "build": "bun build ./src/index.html --outdir=dist --sourcemap --target=browser --minify --define:process.env.NODE_ENV='\"production\"' --env='BUN_PUBLIC_*'",
     "start": "NODE_ENV=production bun src/index.ts",
-    "typecheck": "bun check"
+    "typecheck": "bun check",
+    "import:launchbox": "bun scripts/import-launchbox.ts",
+    "import:images": "bun scripts/download-images.ts"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.104.5",
     "react": "^19",
     "react-dom": "^19"
   },
   "devDependencies": {
+    "@types/bun": "latest",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/bun": "latest"
+    "saxes": "^6.0.0"
   },
   "peerDependencies": {
     "typescript": "^7"

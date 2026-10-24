@@ -25,7 +25,10 @@ export type CarouselItem = {
   subtitle?: string;
   /** Any CSS color. */
   color?: string;
-  /** Image URL. Shown on the card face instead of the name and subtitle. */
+  /**
+   * Image URL. Replaces the name and subtitle on the card face once it has
+   * loaded; until then, or if it fails, the card shows them.
+   */
   art?: string | null;
 };
 
@@ -161,14 +164,20 @@ export function Carousel({
           data-index={index}
         >
           <div className="carousel__face carousel__face--front">
+            <div className="carousel__title">{item.name}</div>
+            {item.subtitle ? <div className="carousel__subtitle">{item.subtitle}</div> : null}
             {item.art ? (
-              <img className="carousel__art" src={item.art} alt="" draggable={false} />
-            ) : (
-              <>
-                <div className="carousel__title">{item.name}</div>
-                {item.subtitle ? <div className="carousel__subtitle">{item.subtitle}</div> : null}
-              </>
-            )}
+              // Marked loaded on the element itself, so the card swaps its
+              // labels for the art (in CSS) without any component state.
+              <img
+                className="carousel__art"
+                src={item.art}
+                alt=""
+                draggable={false}
+                decoding="async"
+                onLoad={(event) => (event.currentTarget.dataset.loaded = "")}
+              />
+            ) : null}
           </div>
           <div className="carousel__face carousel__face--back" />
           <div className="carousel__face carousel__face--left" />

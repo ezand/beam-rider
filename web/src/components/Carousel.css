@@ -215,4 +215,14 @@
   height: calc(var(--art-fill) * 100%);
   object-fit: contain;
   filter: brightness(calc(var(--idle-art-brightness) + (1 - var(--idle-art-brightness)) * var(--focus)));
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.carousel__art[data-loaded] {
+  opacity: 1;
+}
+
+.carousel__face--front:has(> .carousel__art[data-loaded]) > :is(.carousel__title, .carousel__subtitle) {
+  visibility: hidden;
 }

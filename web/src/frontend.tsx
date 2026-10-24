@@ -5,14 +5,25 @@
  * It is included in `src/index.html`.
  */
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "./App";
 
+// The library only changes when it is repopulated, so never refetch on our
+// own. Unwatched pages of games are dropped after two minutes.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { staleTime: Infinity, gcTime: 2 * 60 * 1000, refetchOnWindowFocus: false },
+  },
+});
+
 const elem = document.getElementById("root")!;
 const app = (
   <StrictMode>
-    <App />
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>
   </StrictMode>
 );
 
