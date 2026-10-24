@@ -69,6 +69,11 @@ if (summary.missingRoots.length) {
   console.log(`\nNot found: ${summary.missingRoots.join(", ")}.`);
   console.log("Set LIBRARY_ROM_ROOTS in .env to your ROM folders (see .env.example). Files found there before stay in the library.");
 }
+if (summary.looseFiles.length) {
+  console.log(`\nFiles outside a platform folder aren't scanned; move them into one (such as snes or wii):`);
+  for (const file of summary.looseFiles.slice(0, 20)) console.log(`  ${file}`);
+  if (summary.looseFiles.length > 20) console.log(`  … and ${summary.looseFiles.length - 20} more`);
+}
 if (summary.unknownFolders.length) {
   console.log(`\nFolders with no known platform (rename them, or map them to a platform with LIBRARY_ROM_PLATFORMS):`);
   for (const folder of summary.unknownFolders) console.log(`  ${folder}`);

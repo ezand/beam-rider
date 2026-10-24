@@ -78,7 +78,7 @@ The DATs are kept apart from the library, in `data/dats.db`, since they list gam
 - platform names, both BeamRider's short ones ("SNES") and LaunchBox's full ones ("Super Nintendo Entertainment System");
 - No-Intro and Redump names, such as "Nintendo - Super Nintendo Entertainment System".
 
-Other folders are listed by the scan, so you can rename them or map them with `LIBRARY_ROM_PLATFORMS`. About 60 consoles, handhelds, disc systems and computers are supported. Arcade and Neo Geo folders are recognized but not scanned yet.
+Other folders are listed by the scan, so you can rename them or map them with `LIBRARY_ROM_PLATFORMS`. Files directly in a root, outside any platform folder, aren't scanned; the scan lists them too (`looseFiles` in its summary). About 60 consoles, handhelds, disc systems and computers are supported. Arcade and Neo Geo folders are recognized but not scanned yet.
 
 **Files.** In a platform folder, the scanner reads files with that platform's extensions, plus zip, 7z and RAR archives.
 - Subfolders are included, apart from art folders such as `media` and `images`, and hidden files.
@@ -88,7 +88,7 @@ Other folders are listed by the scan, so you can rename them or map them with `L
 1. **Its checksum in a DAT.** Archives are checked by the CRC32s they list, without unpacking. Copier headers (SNES, Atari 7800, Lynx, FDS) are removed before hashing, including inside zips.
 2. **Its name as a DAT game name.** Disc images are identified this way, since they're too large to hash.
 
-Its title comes from that DAT name, or else from the file name: "Legend of Zelda, The - A Link to the Past (USA) (Rev 1)" gives the title "The Legend of Zelda - A Link to the Past", region USA and tag Rev 1. Files with the same title key on a platform are one game. The key ignores case, punctuation, accents and a leading article, so other regions and revisions join the same game.
+Its title comes from that DAT name, or else from the file name: "Legend of Zelda, The - A Link to the Past (USA) (Rev 1)" gives the title "The Legend of Zelda - A Link to the Past", region USA and tags `["Rev 1"]`. Files with the same title key on a platform are one game. The key ignores case, punctuation, accents and a leading article, so other regions and revisions join the same game.
 
 **Rescans.** Only new and changed files are hashed (`--full` hashes everything again), so a rescan of an unchanged collection takes seconds. Identification runs again each time, so a newer DAT import improves matches without rehashing.
 - Files that are gone are removed.

@@ -97,6 +97,8 @@ beforeAll(async () => {
   await write("psx/Crash Bandicoot (USA).chd", new Uint8Array(1024));
   await write("megadrive/Sonic1Final.bin", fakeRom(14, 2048));
   await write("Holiday photos/beach.jpg", "not a platform");
+  await write("Loose Game (USA).sfc", "outside any platform folder");
+  await write(".hidden-in-root", "ignored");
   await write("mame/sf2.zip", makeZip([{ name: "sf2.bin", data: fakeRom(15, 64) }]));
 });
 
@@ -121,6 +123,7 @@ describe("scanning a collection", () => {
       unidentified: 4,
       errors: [],
       unknownFolders: [join(root, "Holiday photos")],
+      looseFiles: [join(root, "Loose Game (USA).sfc")],
       unsupported: [{ folder: join(root, "mame"), reason: "arcade sets are supported later" }],
       missingRoots: [join(root, "..", "unplugged-drive")],
     });
@@ -134,12 +137,18 @@ describe("scanning a collection", () => {
       ["Mega Drive", 2], ["PlayStation", 2], ["SNES", 5],
     ]);
 
-    const files = library.db.query(`SELECT f.path, f.entry, f.members, f.match_method, f.dat_name, f.title, f.region,
+    const files = library.db.query(`SELECT f.path, f.entry, f.members, f.match_method, f.dat_name, f.title, f.region, f.tags,
       f.header_bytes, f.crc32, g.title AS game FROM rom_files f JOIN games g ON g.id = f.game_id ORDER BY f.path`).all() as Record<string, unknown>[];
     const file = (end: string) => files.find((row) => (row.path as string).endsWith(end))!;
     expect(file("Super Mario World (USA).sfc")).toMatchObject({ match_method: "hash", dat_name: "Super Mario World (USA)", region: "USA" });
     // Another region of the same title: a second file of the same game.
     expect(file("Super Mario World (Europe).sfc")).toMatchObject({ match_method: null, region: "Europe", game: "Super Mario World" });
+    // Tags come from the name the file was identified by: F-Zero's DAT name has
+    // none, though its file name has [h]; the m3u's DAT name has its disc.
+    expect(file("[h].smc")).toMatchObject({ tags: null });
+    expect(file(".m3u")).toMatchObject({ tags: JSON.stringify(["Disc 1"]) });
+    expect(file("Homebrew Thing (PD).sfc")).toMatchObject({ tags: JSON.stringify(["PD"]) });
+    expect(file("Super Mario World (USA).sfc")).toMatchObject({ tags: null });
     expect(file("zelda renamed.zip")).toMatchObject({ match_method: "hash", entry: "whatever.sfc", crc32: Bun.hash.crc32(zelda) });
     expect(file("[h].smc")).toMatchObject({ match_method: "hash", header_bytes: 512, dat_name: "F-Zero (Europe)" });
     expect(file("Homebrew Thing (PD).sfc")).toMatchObject({ match_method: null, title: "Homebrew Thing" });

@@ -50,6 +50,8 @@ export type ScanSummary = {
   missingRoots: string[];
   platforms: { name: string; folder: string; files: number }[];
   unknownFolders: string[];
+  /** Files directly in a root rather than in a platform folder, which aren't scanned. */
+  looseFiles: string[];
   unsupported: { folder: string; reason: string }[];
   files: number;
   games: number;
@@ -81,6 +83,7 @@ type StoredFile = {
   header_bytes: number;
   match_method: MatchMethod | null;
   dat_name: string | null;
+  tags: string | null;
 };
 
 type Fingerprint = Pick<StoredFile, "entry" | "crc32" | "md5" | "sha1" | "header_bytes"> & { size: number };
@@ -154,7 +157,8 @@ async function findCandidates(folder: string, platform: PlatformInfo): Promise<C
 
 export async function scan(db: Database, options: ScanOptions): Promise<ScanSummary> {
   const summary: ScanSummary = {
-    missingRoots: [], platforms: [], unknownFolders: [], unsupported: [], files: 0, games: 0, hashed: 0, removed: 0,
+    missingRoots: [], platforms: [], unknownFolders: [], looseFiles: [], unsupported: [], files: 0, games: 0,
+    hashed: 0, removed: 0,
     identified: { hash: 0, "dat-name": 0 }, unidentified: 0, cancelled: false, errors: [],
   };
   const now = new Date().toISOString();
@@ -178,7 +182,11 @@ export async function scan(db: Database, options: ScanOptions): Promise<ScanSumm
       continue;
     }
     for (const item of await readdir(root, { withFileTypes: true })) {
-      if (!item.isDirectory() || item.name.startsWith(".")) continue;
+      if (item.name.startsWith(".")) continue;
+      if (!item.isDirectory()) {
+        if (item.isFile()) summary.looseFiles.push(join(root, item.name));
+        continue;
+      }
       const platform = platformForFolder(item.name, options.overrides);
       if (platform) addFolder(join(root, item.name), platform);
       else summary.unknownFolders.push(join(root, item.name));
@@ -338,17 +346,19 @@ export async function scan(db: Database, options: ScanOptions): Promise<ScanSumm
     }
     const result = identify(job, print);
     const members = candidate.members.length ? JSON.stringify(candidate.members) : null;
+    const tags = result.parsed.tags.length ? JSON.stringify(result.parsed.tags) : null;
     // Unchanged files that identify the same way need no write.
     if (
       stored && !changed && !options.full && stored.game_id === result.gameId &&
-      stored.match_method === result.method && stored.dat_name === result.datName && stored.members === members
+      stored.match_method === result.method && stored.dat_name === result.datName && stored.members === members &&
+      stored.tags === tags
     ) return;
     upsertFile.run({
       game_id: result.gameId, path: candidate.path, entry: print?.entry ?? null, members,
       size: candidate.size, mtime_ms: candidate.mtimeMs, data_size: print?.size ?? null, crc32: print?.crc32 ?? null,
       md5: print?.md5 ?? null, sha1: print?.sha1 ?? null, header_bytes: print?.header_bytes ?? 0,
       match_method: result.method, dat_name: result.datName, title: result.parsed.title, region: result.parsed.region,
-      tags: result.parsed.tags.length ? result.parsed.tags.join(", ") : null, scanned_at: now,
+      tags, scanned_at: now,
     });
   }
 

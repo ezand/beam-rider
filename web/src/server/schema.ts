@@ -80,8 +80,9 @@ export const MIGRATIONS: string[][] = [
     // of the game data (`data_size` bytes: the file in the archive, or the
     // file after removing a copier header of `header_bytes`).
     // `match_method` says how the file was identified (hash, dat-name), or is
-    // null if only its file name was used. `members` lists, as JSON, the files
-    // a .cue, .gdi or .m3u brings along.
+    // null if only its file name was used. `members` and `tags` are JSON
+    // lists: the files a .cue, .gdi or .m3u brings along, and the name's
+    // groups other than the region, such as ["En,Fr,Es", "Rev 2"].
     `CREATE TABLE rom_files (
       id INTEGER PRIMARY KEY,
       game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
