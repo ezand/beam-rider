@@ -44,12 +44,6 @@ const WALL_COVERS = 24;
 
 const PLAY_ACTION = { button: "A", text: "TO PLAY" };
 
-const DESCRIPTION_CREDITS: Record<string, string> = {
-  wikipedia: "From Wikipedia",
-  igdb: "From IGDB",
-  "hasheous-ai": "Written by AI (Hasheous)",
-};
-
 function posmod(a: number, n: number): number {
   return ((a % n) + n) % n;
 }
@@ -151,7 +145,6 @@ function gameShowcase(platform: Platform, row: GameListItem, details: GameDetail
     ...details.genres.slice(0, 2).map((text) => ({ text })),
     details.rating ? { text: details.rating } : null,
   ];
-  const source = details.description_source;
   return {
     ...base,
     title: details.title,
@@ -161,7 +154,6 @@ function gameShowcase(platform: Platform, row: GameListItem, details: GameDetail
     badges: badges.filter((badge): badge is Badge => badge !== null),
     byline: details.developer === details.publisher ? details.developer : joined(details.developer, details.publisher),
     description: details.description,
-    credit: source ? (DESCRIPTION_CREDITS[source] ?? `From ${source}`) : null,
     // Fanart is made to sit behind things; else gameplay, else the box.
     backdrop: backdropArt(images("fanart")[0] ?? images("screenshot")[0] ?? box),
   };

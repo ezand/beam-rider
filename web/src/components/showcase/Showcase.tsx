@@ -43,7 +43,6 @@ export type ShowcaseItem = ShowcaseBase &
         /** Developer and publisher. */
         byline?: string | null;
         description?: string | null;
-        credit?: string | null;
         /** The call to action, such as "PRESS A TO PLAY"; its button letter is drawn as a button. */
         action?: { button: string; text: string } | null;
       }
@@ -114,7 +113,6 @@ function GameShowcase({ item }: { item: Extract<ShowcaseItem, { kind: "game" }> 
             PRESS <span className="action__button">{item.action.button}</span> {item.action.text}
           </div>
         ) : null}
-        {item.description && item.credit ? <div className="showcase__credit">{item.credit}</div> : null}
       </footer>
     </>
   );

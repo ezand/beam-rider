@@ -235,18 +235,22 @@
   transform: translateZ(9px);
 }
 
-/* The left edge of the cover, stretched and darkened, as the spine. */
+/*
+ * The box's depth, on the edge turned towards the viewer (the right, as the
+ * box faces left): the cover's right edge, stretched and darkened, folded
+ * back from the front.
+ */
 .box3d__spine {
   position: absolute;
   top: 0;
-  left: 0;
+  left: 100%;
   width: 18px;
   height: 100%;
   background-size: 1200% 100%;
-  background-position: left center;
+  background-position: right center;
   filter: brightness(0.45);
   transform-origin: left center;
-  transform: translateZ(9px) rotateY(-90deg);
+  transform: translateZ(9px) rotateY(90deg);
 }
 
 .box3d__reflection {
@@ -384,11 +388,6 @@
 
 @keyframes action-pulse {
   50% { opacity: 0.55; }
-}
-
-.showcase__credit {
-  font-size: 12px;
-  color: rgb(255 255 255 / 0.45);
 }
 
 /* ---- Platforms ---- */

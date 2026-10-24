@@ -1,5 +1,5 @@
 /**
- * A game's box as a 3D object: the front cover with a spine for depth,
+ * A game's box as a 3D object: the front cover with a side for depth,
  * turned towards the wheel and slowly swaying, with a floor reflection. It
  * takes the cover's own shape, so landscape boxes (SNES, N64) stay whole.
  */
