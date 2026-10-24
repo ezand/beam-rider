@@ -3,8 +3,8 @@ import { inflateRawSync } from "node:zlib";
 /**
  * Lists the files in ROM archives without unpacking them: a zip's central
  * directory holds each file's size and CRC32, which is all the DAT lookup
- * needs. 7z archives are listed with the 7-Zip command line tool, if it is
- * installed.
+ * needs. 7z and RAR archives are listed by 7-Zip (sevenzip.ts); this file
+ * parses what it prints.
  */
 
 export type ArchiveEntry = { name: string; size: number; crc32: number | null; offset?: number; method?: number };
@@ -104,15 +104,14 @@ export async function readZipEntry(path: string, entry: ArchiveEntry): Promise<U
   throw new Error(`unsupported zip compression method ${entry.method}`);
 }
 
-/** The 7-Zip command line tool on this machine, if any. */
-export const sevenZip = () => Bun.which("7zz") ?? Bun.which("7z") ?? Bun.which("7za");
-
 /** Parses `7z l -slt` output into entries. */
 export function parseSevenZipListing(output: string): ArchiveEntry[] {
   const entries: ArchiveEntry[] = [];
   for (const block of output.split(/\r?\n\r?\n/)) {
     const fields = new Map<string, string>();
-    for (const line of block.split(/\r?\n/)) {
+    for (let line of block.split(/\r?\n/)) {
+      // Progress output ends in backspaces and can share a line with a field.
+      line = line.slice(line.lastIndexOf("\b") + 1);
       const at = line.indexOf(" = ");
       if (at > 0) fields.set(line.slice(0, at).trim(), line.slice(at + 3));
     }
@@ -123,13 +122,4 @@ export function parseSevenZipListing(output: string): ArchiveEntry[] {
     entries.push({ name, size: Number(size), crc32: crc ? Number.parseInt(crc, 16) : null });
   }
   return entries;
-}
-
-/** The files in a 7z archive, or null if 7-Zip isn't installed. */
-export async function listSevenZip(path: string): Promise<ArchiveEntry[] | null> {
-  const tool = sevenZip();
-  if (!tool) return null;
-  const result = await Bun.$`${tool} l -slt -ba ${path}`.quiet().nothrow();
-  if (result.exitCode !== 0) throw new Error(`7-Zip could not read the archive (exit ${result.exitCode})`);
-  return parseSevenZipListing(result.stdout.toString());
 }

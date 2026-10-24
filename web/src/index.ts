@@ -4,12 +4,22 @@ import { dirname } from "node:path";
 import index from "./index.html";
 import { PAGE_SIZE, type GamesPage, type LetterJump } from "./library/api";
 import { createArtHandler } from "./server/art";
-import { artRegions, libraryPath as configuredLibraryPath, mediaPath } from "./server/config";
+import {
+  artRegions, datsPath, libraryPath as configuredLibraryPath, mediaPath, romPlatformOverrides, romRoots, scanLockPath,
+} from "./server/config";
 import { openLibrary } from "./server/library";
+import { createScanManager, scanRoutes } from "./server/scanner/manager";
 
 const libraryPath = configuredLibraryPath();
 mkdirSync(dirname(libraryPath), { recursive: true });
 const library = openLibrary(libraryPath, { artRegions: artRegions() });
+const scans = createScanManager({
+  libraryPath,
+  datsPath: datsPath(),
+  roots: romRoots(),
+  overrides: romPlatformOverrides(),
+  lockPath: scanLockPath(),
+});
 
 /** A non-negative integer from a path or query parameter, or null. */
 function integer(value: string | null | undefined): number | null {
@@ -25,6 +35,9 @@ const server = serve({
     "/*": index,
 
     "/api/platforms": () => Response.json(library.platforms()),
+
+    // Scans of the ROM folders, run in a worker (see server/scanner/manager.ts).
+    ...scanRoutes(scans),
 
     // Card art, shrunk from the downloaded originals (see server/art.ts).
     "/art/:size/:shard/:file": createArtHandler(mediaPath()),

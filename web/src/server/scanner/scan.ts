@@ -1,10 +1,11 @@
 import type { Database } from "bun:sqlite";
 import { readdir, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
-import { listSevenZip, listZip, readZipEntry, type ArchiveEntry } from "./archives";
+import { listZip, readZipEntry, type ArchiveEntry } from "./archives";
 import { fileStart, hashBytes, hashFile, headerBytes, MAX_HASH_BYTES } from "./hash";
 import { extension, matchKey, parseRomName, stem } from "./names";
 import { ARCHIVE_EXTENSIONS, platformForFolder, type PlatformInfo } from "./platforms";
+import { listSevenZip } from "./sevenzip";
 
 /**
  * The ROM scanner: finds the user's game files, identifies each one, and
@@ -35,8 +36,15 @@ export type ScanOptions = {
   /** Hash every file again, not just changed ones. */
   full?: boolean;
   concurrency?: number;
-  onProgress?: (progress: { done: number; total: number; hashed: number }) => void;
+  /**
+   * Stops the scan between files. Files found so far keep their games, and
+   * files that are gone are still removed; the rest wait for the next scan.
+   */
+  signal?: AbortSignal;
+  onProgress?: (progress: ScanProgress) => void;
 };
+
+export type ScanProgress = { done: number; total: number; hashed: number };
 
 export type ScanSummary = {
   missingRoots: string[];
@@ -51,6 +59,8 @@ export type ScanSummary = {
   identified: Record<MatchMethod, number>;
   /** Files no DAT identified; they're titled from their file names. */
   unidentified: number;
+  /** Whether the scan was stopped before it got through every file. */
+  cancelled: boolean;
   errors: { path: string; error: string }[];
 };
 
@@ -145,7 +155,7 @@ async function findCandidates(folder: string, platform: PlatformInfo): Promise<C
 export async function scan(db: Database, options: ScanOptions): Promise<ScanSummary> {
   const summary: ScanSummary = {
     missingRoots: [], platforms: [], unknownFolders: [], unsupported: [], files: 0, games: 0, hashed: 0, removed: 0,
-    identified: { hash: 0, "dat-name": 0 }, unidentified: 0, errors: [],
+    identified: { hash: 0, "dat-name": 0 }, unidentified: 0, cancelled: false, errors: [],
   };
   const now = new Date().toISOString();
 
@@ -247,9 +257,9 @@ export async function scan(db: Database, options: ScanOptions): Promise<ScanSumm
   async function fingerprint(job: Job): Promise<Fingerprint | null> {
     const { candidate, platform } = job;
     const kind = extension(candidate.path);
-    if (kind === "zip" || kind === "7z") {
-      const entries: ArchiveEntry[] | null = kind === "zip" ? await listZip(candidate.path) : await listSevenZip(candidate.path);
-      if (!entries?.length) return null;
+    if (ARCHIVE_EXTENSIONS.includes(kind)) {
+      const entries: ArchiveEntry[] = kind === "zip" ? await listZip(candidate.path) : await listSevenZip(candidate.path);
+      if (!entries.length) return null;
       const roms = entries.filter((entry) => platform.extensions.includes(extension(entry.name)));
       const entry = [...(roms.length ? roms : entries)].sort((a, b) => b.size - a.size)[0]!;
       const listed: Fingerprint = { entry: entry.name, crc32: entry.crc32, md5: null, sha1: null, header_bytes: 0, size: entry.size };
@@ -345,7 +355,7 @@ export async function scan(db: Database, options: ScanOptions): Promise<ScanSumm
   let next = 0;
   let done = 0;
   const worker = async () => {
-    while (next < jobs.length) {
+    while (next < jobs.length && !options.signal?.aborted) {
       const job = jobs[next++]!;
       try {
         await run(job);
@@ -357,6 +367,7 @@ export async function scan(db: Database, options: ScanOptions): Promise<ScanSumm
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, options.concurrency ?? 4) }, worker));
+  summary.cancelled = done < jobs.length;
 
   // Files that are gone: under a scanned platform folder but not found, or
   // under no configured root at all. Files under a root that's missing (an

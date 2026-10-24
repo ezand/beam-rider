@@ -32,9 +32,11 @@ To set up a library: set `LIBRARY_ROM_ROOTS` in `.env`, then run `import:dats` a
     - `platforms.ts`: the platforms BeamRider knows;
     - `dat.ts`: the DAT reference lists;
     - `names.ts`: dump names and title keys;
-    - `archives.ts`: zip and 7z listings;
+    - `archives.ts`: zip listings, and parsing 7-Zip's;
+    - `sevenzip.ts`: 7z and RAR listings, with 7-Zip compiled to WebAssembly;
     - `hash.ts`: checksums;
-    - `scan.ts`: the scan itself.
+    - `scan.ts`: the scan itself;
+    - `manager.ts`, `worker.ts` and `lock.ts`: scans the server runs in a worker, one at a time.
   - `config.ts`: settings.
 - `scripts/` holds the commands.
 
@@ -78,12 +80,12 @@ The DATs are kept apart from the library, in `data/dats.db`, since they list gam
 
 Other folders are listed by the scan, so you can rename them or map them with `LIBRARY_ROM_PLATFORMS`. About 60 consoles, handhelds, disc systems and computers are supported. Arcade and Neo Geo folders are recognized but not scanned yet.
 
-**Files.** In a platform folder, the scanner reads files with that platform's extensions, plus zip and 7z archives.
+**Files.** In a platform folder, the scanner reads files with that platform's extensions, plus zip, 7z and RAR archives.
 - Subfolders are included, apart from art folders such as `media` and `images`, and hidden files.
 - A `.cue`, `.gdi` or `.m3u` is one game together with the files it lists, so a multi-disc game is one entry.
 
 **Identifying games.** Each file is identified by the first of these that works:
-1. **Its checksum in a DAT.** Archives are checked by the CRC32 in their directory, without unpacking. Copier headers (SNES, Atari 7800, Lynx, FDS) are removed before hashing.
+1. **Its checksum in a DAT.** Archives are checked by the CRC32s they list, without unpacking. Copier headers (SNES, Atari 7800, Lynx, FDS) are removed before hashing, including inside zips.
 2. **Its name as a DAT game name.** Disc images are identified this way, since they're too large to hash.
 
 Its title comes from that DAT name, or else from the file name: "Legend of Zelda, The - A Link to the Past (USA) (Rev 1)" gives the title "The Legend of Zelda - A Link to the Past", region USA and tag Rev 1. Files with the same title key on a platform are one game. The key ignores case, punctuation, accents and a leading article, so other regions and revisions join the same game.
@@ -92,7 +94,11 @@ Its title comes from that DAT name, or else from the file name: "Legend of Zelda
 - Files that are gone are removed.
 - Files under a root that's missing, such as an unplugged drive, are kept until it's back.
 
-**7z archives** need the 7-Zip command line tool (`7zz` or `7z`) to be identified by checksum; without it they're identified by name.
+**Archives.** Zips are read directly. 7z and RAR archives are listed by 7-Zip compiled to WebAssembly ([7z-wasm](https://github.com/use-strict/7z-wasm), 7-Zip 24.09, LGPL with the unRAR restriction), so nothing has to be installed. It reads only an archive's headers, about 1 ms per archive however large, and parses untrusted archives inside the WebAssembly sandbox.
+
+**Scanning from the app.** The server can run scans too, through the API below. A scan runs in a worker thread, so requests are answered as usual while it hashes. Only one scan runs at a time, server or `bun run scan`, through a lock file next to the library (`library.db.scan-lock`). A lock left by a process that has died is taken over. The folders scanned always come from the server's settings, never from a request.
+
+There's no login yet, so anyone who can reach the server can start a scan.
 
 `bun run import:dats` downloads the DATs of the supported platforms from [libretro-database](https://github.com/libretro/libretro-database) (CC BY-SA 4.0) to `data/dats/`, and loads them into `data/dats.db` (about 100,000 entries, 20 seconds). Copies are reused for a week; `--refresh` downloads them again.
 
@@ -112,3 +118,6 @@ Originals are often large scans, so cards load `GET /art/512/<path>?v=<crc32>` i
 - `GET /api/platforms/:id/games?offset=&limit=` returns `{ offset, rows: [{ id, title, release_year, art }] }`. `art` is the card art URL, or null. `limit` is at most 200.
 - `GET /api/platforms/:id/letter?game=&direction=1|-1` returns `{ index }`: where PageDown/PageUp goes from that game, or null.
 - `GET /art/512/:shard/:file?v=` serves card art thumbnails.
+- `POST /api/scan` starts a scan (`?full=1` hashes every file again). It answers 202 with the scan's status, or 409 if a scan is already running, here or in `bun run scan`.
+- `GET /api/scan` returns the status: `state` (`idle`, `running`, `done`, `cancelled` or `failed`), `progress` (`done`, `total`, `hashed`), `startedAt`, `finishedAt`, the finished scan's `summary`, and `error`.
+- `POST /api/scan/cancel` stops the running scan after the files in progress (202), or answers 409 if none is running.

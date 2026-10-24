@@ -173,4 +173,4 @@ export function platformForFolder(name: string, overrides: Record<string, string
 }
 
 /** Archive formats the scanner looks inside. */
-export const ARCHIVE_EXTENSIONS = ["zip", "7z"];
+export const ARCHIVE_EXTENSIONS = ["zip", "7z", "rar"];

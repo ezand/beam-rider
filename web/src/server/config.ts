@@ -44,3 +44,6 @@ export const romPlatformOverrides = (): Record<string, string> =>
 
 /** The DAT reference database (LIBRARY_DATS_PATH, default data/dats.db). */
 export const datsPath = () => resolve(WEB_ROOT, process.env.LIBRARY_DATS_PATH || "data/dats.db");
+
+/** The lock file that keeps scans to one at a time, next to the library. */
+export const scanLockPath = () => libraryPath() + ".scan-lock";

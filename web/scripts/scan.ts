@@ -10,13 +10,26 @@
 
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { datsPath, libraryPath, romPlatformOverrides, romRoots } from "../src/server/config";
+import { datsPath, libraryPath, romPlatformOverrides, romRoots, scanLockPath } from "../src/server/config";
 import { openLibrary } from "../src/server/library";
 import { openDats } from "../src/server/scanner/dat";
+import { acquireScanLock } from "../src/server/scanner/lock";
 import { scan } from "../src/server/scanner/scan";
 
 const roots = romRoots();
 mkdirSync(dirname(libraryPath()), { recursive: true });
+// One scan at a time, also against scans the server runs.
+const locked = acquireScanLock(scanLockPath());
+if ("heldBy" in locked) {
+  console.error(`A scan is already running (process ${locked.heldBy}).`);
+  process.exit(1);
+}
+const stop = new AbortController();
+process.on("SIGINT", () => {
+  if (stop.signal.aborted) process.exit(130);
+  console.log("\nStopping after the files in progress (Ctrl+C again to quit now) …");
+  stop.abort();
+});
 const library = openLibrary(libraryPath());
 const dats = openDats(datsPath(), { readonly: true });
 if (!dats) console.log("No DATs imported, so games are identified by file name only. Run `bun run import:dats` first.");
@@ -29,6 +42,7 @@ const summary = await scan(library.db, {
   dats,
   overrides: romPlatformOverrides(),
   full: process.argv.includes("--full"),
+  signal: stop.signal,
   onProgress({ done, total, hashed }) {
     const now = performance.now();
     if (now - lastPrint < 500 && done < total) return;
@@ -39,9 +53,11 @@ const summary = await scan(library.db, {
 library.db.run("PRAGMA optimize");
 library.close();
 dats?.close();
+locked.lock.release();
 
 const seconds = ((performance.now() - started) / 1000).toFixed(1);
 const count = (n: number) => n.toLocaleString("en");
+if (summary.cancelled) console.log("\nStopped early; the next scan carries on.");
 console.log(`\nScanned ${count(summary.files)} files in ${seconds} s (${count(summary.hashed)} hashed, ${count(summary.removed)} removed).`);
 for (const platform of summary.platforms) console.log(`  ${platform.name}: ${count(platform.files)} files in ${platform.folder}`);
 console.log(`${count(summary.games)} games in the library.`);

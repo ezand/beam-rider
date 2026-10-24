@@ -60,3 +60,30 @@ export function fakeRom(seed: number, size: number): Uint8Array {
   }
   return bytes;
 }
+
+/**
+ * A RAR5 archive holding one 1200-byte file, test.bin (CRC32 7CCA70CD).
+ * It's test_read_format_rar5_compressed.rar from libarchive's test suite
+ * (https://github.com/libarchive/libarchive, BSD 2-clause, Copyright Tim
+ * Kientzle), since nothing here can create RAR archives.
+ */
+export const RAR5_SAMPLE = {
+  bytes: Uint8Array.from(Buffer.from(
+    "UmFyIRoHAQDz4YLrCwEFBwAGAQGAgIAAicZf2iYCAwvpAgSwCaSDAs1wynyABQEIdGVzdC5iaW4KAxOLV6xb+BitHsr0ZQEnZWBUH1V2Xb+UknHJz2WWWQxw2WWTGMWSE4ZCSSThkJCSSSQk45JJIQhJJCEJJJCSSEISEs21b3t9Mw6AfR0Drj+eup/3Qf732vfdea86X+gAQAEAyCCfn49vX08vHv7uzr6uno5+Xk4+Lh4N/d3NrZ19bV1NPS0M/NzMrJyMfGxcTDwb+9vLu5uLe2tbSzsrGvrq2rqqmnpaSjoqGgn52cm5mXlpSTSyUjIR6FAfjoyKiYc6cNmoaEgoB+fHt6eHZ0c3Jxb21raWdlY2FfXVtZV1VTITf1/I/QJT6JTn+ESXRYowZ5YXajgppimUF+ZC0XadRjLDOMCoR/+glMZpCl9lUKxWVguLAZFoNy4HdeEGwA8xBIyCeZhWNAumoZbYN5uHg4Bgcg+uYROgpnYYDwNt6Hu9h1fQjfxYQI0YMecKHk0Jg2L44OY6HCIEqeGFFjtjQ/nxUIBsIQ0IhNIxnJAvJQAdd1ZRAwUEAA==",
+    "base64",
+  )),
+  entry: "test.bin",
+  size: 1200,
+  crc32: 0x7cca70cd,
+};
+
+/** Writes a 7z archive of `files` (paths) to `archive`, with 7-Zip itself. */
+export async function makeSevenZip(archive: string, files: string[]): Promise<void> {
+  const { default: SevenZip } = await import("7z-wasm");
+  const errors: string[] = [];
+  const module = await SevenZip({ print: () => {}, printErr: (line: string) => errors.push(line) });
+  module.FS.mkdir("/host");
+  module.FS.mount(module.NODEFS, { root: "/" }, "/host");
+  module.callMain(["a", "-bd", "-bsp0", "/host" + archive, ...files.map((file) => "/host" + file)]);
+  if (errors.some((line) => /error/i.test(line))) throw new Error(errors.join("\n"));
+}

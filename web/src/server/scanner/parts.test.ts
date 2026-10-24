@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listZip, parseSevenZipListing, readZipEntry } from "./archives";
 import { parseDat } from "./dat";
-import { fakeRom, makeZip } from "./fixtures";
+import { fakeRom, makeSevenZip, makeZip, RAR5_SAMPLE } from "./fixtures";
 import { fileStart, hashBytes, hashFile, headerBytes } from "./hash";
 import { extension, matchKey, parseRomName, stem } from "./names";
 import { PLATFORMS, platformForFolder } from "./platforms";
+import { listSevenZip } from "./sevenzip";
 
 let folder: string;
 beforeAll(async () => {
@@ -144,8 +145,35 @@ describe("archives", () => {
     expect(listZip(join(folder, "fake.zip"))).rejects.toThrow("not a zip");
   });
 
-  test("7-Zip listings parse", () => {
-    const output = `Path = Game (Europe).md
+  test("7z archives are listed by the built-in 7-Zip", async () => {
+    const rom = fakeRom(4, 9000);
+    await Bun.write(join(folder, "seven", "Seven Game (Europe).md"), rom);
+    await Bun.write(join(folder, "seven", "readme.txt"), "hello");
+    const archive = join(folder, "seven.7z");
+    await makeSevenZip(archive, [join(folder, "seven", "Seven Game (Europe).md"), join(folder, "seven", "readme.txt")]);
+    expect(await listSevenZip(archive)).toEqual([
+      { name: "Seven Game (Europe).md", size: 9000, crc32: Bun.hash.crc32(rom) as number },
+      { name: "readme.txt", size: 5, crc32: Bun.hash.crc32("hello") as number },
+    ]);
+  });
+
+  test("RAR archives are listed too", async () => {
+    const archive = join(folder, "sample.rar");
+    await Bun.write(archive, RAR5_SAMPLE.bytes);
+    expect(await listSevenZip(archive)).toEqual([
+      { name: RAR5_SAMPLE.entry, size: RAR5_SAMPLE.size, crc32: RAR5_SAMPLE.crc32 },
+    ]);
+  });
+
+  test("files 7-Zip can't read are refused, and it keeps working after", async () => {
+    await Bun.write(join(folder, "broken.7z"), "this is not an archive");
+    expect(listSevenZip(join(folder, "broken.7z"))).rejects.toThrow("7-Zip");
+    expect(listSevenZip(join(folder, "missing.rar"))).rejects.toThrow("7-Zip");
+    expect(await listSevenZip(join(folder, "sample.rar"))).toHaveLength(1);
+  });
+
+  test("7-Zip listings parse, even with progress output in front", () => {
+    const output = `  0M Scan /roms/\b\b\b\b\b\b     \b\b\b\b\bPath = Game (Europe).md
 Folder = -
 Size = 1048576
 Packed Size = 400000
