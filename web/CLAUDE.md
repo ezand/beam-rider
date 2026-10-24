@@ -11,9 +11,13 @@ The web version of the BeamRider frontend (Bun server, React, CSS 3D). `README.m
 - `src/components/Carousel.tsx` is stateless: the parent owns the selection, and the component renders only the cards near the front, calling `getItem` just for those. Keep it that way: never render a card per list entry, and keep motion in CSS (only `--offset` animates).
 - Server state on the client goes through TanStack Query (`src/library/queries.ts`). Game lists are paged around the selection (`useGamePages`), never loaded whole.
 - Change the database schema by adding a migration to `MIGRATIONS` in `src/server/schema.ts`. Never edit a migration that has been committed.
-- Keep queries the wheel makes on the `games_wheel` index: filter on `platform_id` and `hide = 0`, order by `sort_key, id`. Add a test with `EXPLAIN QUERY PLAN` and a timing check at 100,000 games for new ones (see `src/server/library.test.ts`).
+- The library holds only the user's games: a game exists because the scanner found files for it. Don't add catalogues of other games to it. Reference data (the DATs) lives in its own database (`data/dats.db`).
+- Keep the app provider-neutral. Platforms are BeamRider's own (`src/server/scanner/platforms.ts`, by slug); a provider's names for them go in `providers`. Game and image fields are neutral, and scrapers map their provider's data onto them.
+- Keep wheel queries on the `games_wheel` index: filter on `platform_id` and `hide = 0`, order by `sort_key, id`. Add a test with `EXPLAIN QUERY PLAN` and a timing check at 100,000 games for new ones (see `src/server/library.test.ts`).
+- The ROM scanner (`src/server/scanner/`) never trusts file names alone when a checksum can decide. Supporting a new platform means adding one entry to `platforms.ts` (folders, DATs, extensions, kind, header). Identification runs on every scan from stored hashes, so keep it cheap and keep hashing for new or changed files only.
+- Real ROMs never go into tests or the repo: tests build fake files and their own DATs (`src/server/scanner/fixtures.ts`).
 - An empty or missing database, setting or media folder is a normal state with a sensible default, not an error.
-- `data/` holds the database, LaunchBox's metadata and downloaded art. It's gitignored, because LaunchBox publishes no license for its data. Don't commit any of it, or add LaunchBox data to the repo as fixtures; tests build their own data.
+- `data/` holds the library, the DATs and downloaded art. It's gitignored; don't commit any of it. Tests build their own data.
 - Card art thumbnails are made at request time by `src/server/art.ts`. Validate any path from a request before it touches the filesystem, and don't hand request strings to `Bun.Image`.
 
 Default to using Bun instead of Node.js.

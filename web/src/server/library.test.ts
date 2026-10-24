@@ -1,18 +1,29 @@
 import { beforeAll, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { initial, openLibrary, type Library } from "./library";
+import { PLATFORMS } from "./scanner/platforms";
 import { migrate, SCHEMA_VERSION } from "./schema";
 
 const STRESS_GAMES = 100_000;
 
-function sortKeyOf(library: Library, title: string, sortTitle: string | null = null): string {
-  const { db } = library;
-  db.run("INSERT OR IGNORE INTO platforms (id, name) VALUES (999, 'Sort keys')");
-  const row = db
-    .query<{ sort_key: string }, { title: string; sortTitle: string | null }>(
-      "INSERT INTO games (platform_id, title, sort_title) VALUES (999, $title, $sortTitle) RETURNING sort_key",
-    )
-    .get({ title, sortTitle });
-  return row!.sort_key;
+/** The id of a platform (synced from PLATFORMS when the library opens). */
+function platformId(library: Library, slug: string): number {
+  return (library.db.query("SELECT id FROM platforms WHERE slug = ?").get(slug) as { id: number }).id;
+}
+
+let nextKey = 0;
+
+/** Adds a game, as the scanner would. Titles may repeat; group keys don't. */
+function addGame(library: Library, platform: number, title: string, extra: { sortTitle?: string; hide?: number; date?: string } = {}) {
+  return (library.db
+    .query(`INSERT INTO games (platform_id, group_key, title, sort_title, hide, release_date, date_added)
+      VALUES (?, ?, ?, ?, ?, ?, 'now') RETURNING id, sort_key`)
+    .get(platform, `key ${nextKey++}`, title, extra.sortTitle ?? null, extra.hide ?? 0, extra.date ?? null)) as {
+    id: number;
+    sort_key: string;
+  };
 }
 
 /** Seeded generator, so failures reproduce. */
@@ -25,22 +36,19 @@ function random(seed: number) {
   };
 }
 
-/** Like the Godot frontend's stress test platform, with repeats and hidden games. */
-function seedStressPlatform(library: Library, id: number, count: number) {
+/** Like the Godot frontend's stress test platform, with repeated titles and hidden games. */
+function seedStressGames(library: Library, platform: number, count: number) {
   const words = ["Super", "Mega", "The Ultra", "Hyper", "A Turbo", "Final", "Dark", "Cosmic", "Neon",
     "Iron", "Crystal", "Shadow", "Golden", "Wild", "Zany", "Xeno", "Quest", "Racer", "Legend"];
   const next = random(64);
-  const { db } = library;
-  db.run("INSERT INTO platforms (id, name, color) VALUES (?, ?, ?)", [id, "Stress Test", "#00b3a4"]);
-  const insert = db.prepare(
-    "INSERT INTO games (platform_id, title, release_date, hide) VALUES (?, ?, ?, ?)",
-  );
-  db.transaction(() => {
+  const insert = library.db.prepare(`INSERT INTO games (platform_id, group_key, title, release_date, hide, date_added)
+    VALUES (?, ?, ?, ?, ?, 'now')`);
+  library.db.transaction(() => {
     for (let i = 0; i < count; i++) {
       const word = words[Math.floor(next() * words.length)]!;
       const title = `${word} ${words[Math.floor(next() * words.length)]} ${Math.floor(next() * 20)}`;
       const year = 1977 + Math.floor(next() * 28);
-      insert.run(id, title, String(year), next() < 0.02 ? 1 : 0);
+      insert.run(platform, `stress ${i}`, title, String(year), next() < 0.02 ? 1 : 0);
     }
   })();
 }
@@ -93,48 +101,102 @@ describe("schema", () => {
 
   test("sort keys drop leading articles unless a sort title is given", () => {
     const library = openLibrary(":memory:");
-    expect(sortKeyOf(library, "The Legend of Zelda")).toBe("legend of zelda");
-    expect(sortKeyOf(library, "A Boy and His Blob")).toBe("boy and his blob");
-    expect(sortKeyOf(library, "An American Tail")).toBe("american tail");
-    expect(sortKeyOf(library, "  Metroid ")).toBe("metroid");
-    expect(sortKeyOf(library, "The")).toBe("the");
-    expect(sortKeyOf(library, "Theme Park")).toBe("theme park");
-    expect(sortKeyOf(library, "Another World")).toBe("another world");
-    expect(sortKeyOf(library, "The Legend of Zelda", "Zelda 1")).toBe("zelda 1");
-    expect(sortKeyOf(library, "The Legend of Zelda", "  ")).toBe("legend of zelda");
+    const snes = platformId(library, "snes");
+    const key = (title: string, sortTitle?: string) => addGame(library, snes, title, { sortTitle }).sort_key;
+    expect(key("The Legend of Zelda")).toBe("legend of zelda");
+    expect(key("A Boy and His Blob")).toBe("boy and his blob");
+    expect(key("An American Tail")).toBe("american tail");
+    expect(key("  Metroid ")).toBe("metroid");
+    expect(key("The")).toBe("the");
+    expect(key("Theme Park")).toBe("theme park");
+    expect(key("Another World")).toBe("another world");
+    expect(key("The Legend of Zelda", "Zelda 1")).toBe("zelda 1");
+    expect(key("The Legend of Zelda", "  ")).toBe("legend of zelda");
     library.close();
   });
 
   test("release years come from release dates", () => {
     const library = openLibrary(":memory:");
-    library.db.run("INSERT INTO platforms (id, name, release_date) VALUES (1, 'NES', '1983-07-15')");
-    expect(library.platforms()[0]!.release_year).toBe(1983);
+    const { id } = addGame(library, platformId(library, "nes"), "Metroid", { date: "1986-08-06" });
+    expect(library.db.query("SELECT release_year FROM games WHERE id = ?").get(id)).toEqual({ release_year: 1986 });
     library.close();
   });
 
-  test("deleting a platform deletes its games", () => {
+  test("a game holds one title per platform", () => {
+    const library = openLibrary(":memory:");
+    const insert = () => library.db.run(
+      "INSERT INTO games (platform_id, group_key, title, date_added) VALUES (?, 'metroid', 'Metroid', 'now')",
+      [platformId(library, "nes")],
+    );
+    insert();
+    expect(insert).toThrow("UNIQUE");
+    library.close();
+  });
+
+  test("deleting a game deletes its files and images", () => {
     const library = openLibrary(":memory:");
     const { db } = library;
-    db.run("INSERT INTO platforms (id, name) VALUES (1, 'NES')");
-    db.run("INSERT INTO games (platform_id, title) VALUES (1, 'Metroid'), (1, 'Kid Icarus')");
-    db.run("DELETE FROM platforms WHERE id = 1");
-    expect(db.query("SELECT COUNT(*) AS n FROM games").get()).toEqual({ n: 0 });
+    const { id } = addGame(library, platformId(library, "nes"), "Metroid");
+    db.run(`INSERT INTO rom_files (game_id, path, size, mtime_ms, title, scanned_at) VALUES (?, '/m.nes', 1, 1, 'Metroid', 'now')`, [id]);
+    db.run(`INSERT INTO game_images (game_id, type, provider) VALUES (?, 'box-front', 'test')`, [id]);
+    db.run("DELETE FROM games WHERE id = ?", [id]);
+    expect(db.query("SELECT (SELECT COUNT(*) FROM rom_files) + (SELECT COUNT(*) FROM game_images) AS n").get()).toEqual({ n: 0 });
     library.close();
   });
 });
 
 describe("platforms", () => {
-  test("are sorted by sort title or name, with visible game counts", () => {
+  test("follow the platform table, and keep the user's settings", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "beamrider-library-"));
+    try {
+      const path = join(folder, "library.db");
+      const library = openLibrary(path);
+      const snes = "SELECT name, maker, year, color FROM platforms WHERE slug = 'snes'";
+      expect(library.db.query("SELECT COUNT(*) AS n FROM platforms").get()).toEqual({ n: PLATFORMS.length });
+      expect(library.db.query(snes).get()).toEqual({ name: "SNES", maker: "Nintendo", year: 1990, color: null });
+      library.db.run(`UPDATE platforms SET color = '#6a4fb3', name = 'Old name', custom_name = 'Super Famicom'
+        WHERE slug = 'snes'`);
+      library.close();
+      // Opening again restores the name from the code and keeps the user's settings.
+      const reopened = openLibrary(path);
+      expect(reopened.db.query(snes).get()).toEqual({ name: "SNES", maker: "Nintendo", year: 1990, color: "#6a4fb3" });
+      expect(reopened.db.query("SELECT custom_name FROM platforms WHERE slug = 'snes'").get())
+        .toEqual({ custom_name: "Super Famicom" });
+      reopened.close();
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+  });
+
+  test("are the ones with visible games, sorted by sort title or name", () => {
     const library = openLibrary(":memory:");
     const { db } = library;
-    db.run(`INSERT INTO platforms (id, name, sort_title, color) VALUES
-      (1, 'Super Nintendo', 'Nintendo SNES', '#6a4fb3'), (2, 'Atari 2600', NULL, NULL), (3, 'mega drive', NULL, NULL)`);
-    db.run(`INSERT INTO games (platform_id, title, hide) VALUES (1, 'F-Zero', 0), (1, 'Secret', 1), (2, 'Pitfall!', 0)`);
+    db.run("UPDATE platforms SET sort_title = 'Nintendo SNES', color = '#6a4fb3' WHERE slug = 'snes'");
+    addGame(library, platformId(library, "snes"), "F-Zero");
+    addGame(library, platformId(library, "snes"), "Secret", { hide: 1 });
+    addGame(library, platformId(library, "atari2600"), "Pitfall!");
+    addGame(library, platformId(library, "megadrive"), "Sonic");
+    addGame(library, platformId(library, "nes"), "Hidden only", { hide: 1 });
     expect(library.platforms().map((p) => [p.name, p.game_count])).toEqual([
       ["Atari 2600", 1],
-      ["mega drive", 0],
-      ["Super Nintendo", 1],
+      ["Mega Drive", 1],
+      ["SNES", 1],
     ]);
+    expect(library.platforms()[0]).toEqual({
+      id: platformId(library, "atari2600"), name: "Atari 2600", manufacturer: "Atari", release_year: 1977, color: null, game_count: 1,
+    });
+    library.close();
+  });
+
+  test("show a custom name in place of the code's, and sort by it", () => {
+    const library = openLibrary(":memory:");
+    addGame(library, platformId(library, "megadrive"), "Sonic");
+    addGame(library, platformId(library, "atari2600"), "Pitfall!");
+    library.db.run("UPDATE platforms SET custom_name = 'Genesis' WHERE slug = 'megadrive'");
+    library.db.run("UPDATE platforms SET custom_name = '  ' WHERE slug = 'atari2600'");
+    expect(library.platforms().map((p) => p.name)).toEqual(["Atari 2600", "Genesis"]);
+    library.db.run("UPDATE platforms SET custom_name = 'Video Computer System' WHERE slug = 'atari2600'");
+    expect(library.platforms().map((p) => p.name)).toEqual(["Genesis", "Video Computer System"]);
     library.close();
   });
 });
@@ -142,58 +204,56 @@ describe("platforms", () => {
 describe("card art", () => {
   function seedArt(options?: Parameters<typeof openLibrary>[1]) {
     const library = openLibrary(":memory:", options);
-    const { db } = library;
-    db.run("INSERT INTO platforms (id, name) VALUES (1, 'NES')");
-    db.run(`INSERT INTO games (id, platform_id, title) VALUES
-      (1, 1, 'Alpha scanned'), (2, 1, 'Bravo reconstructed'), (3, 1, 'Charlie not downloaded'), (4, 1, 'Delta logo only')`);
-    const image = db.prepare(
-      "INSERT INTO game_images (game_id, type, region, source, source_name, crc32, path) VALUES (?, ?, ?, 'launchbox', ?, ?, ?)",
+    const nes = platformId(library, "nes");
+    const ids = ["Alpha", "Bravo not downloaded", "Charlie logo only"].map((title) => addGame(library, nes, title).id);
+    const image = library.db.prepare(
+      "INSERT INTO game_images (game_id, type, region, provider, url, crc32, path) VALUES (?, ?, ?, 'test', 'http://x', ?, ?)",
     );
-    image.run(1, "Box - Front", "Japan", "jp.jpg", 11, "jp/jp.jpg");
-    image.run(1, "Box - Front", "North America", "na.jpg", 22, "na/na.jpg");
-    image.run(1, "Box - Front", "World", "world.jpg", 33, null);
-    image.run(1, "Box - Front - Reconstructed", "North America", "rec.jpg", 44, "re/rec.jpg");
-    image.run(2, "Box - Front - Reconstructed", null, "rec2.jpg", null, "re/rec2.jpg");
-    image.run(3, "Box - Front", "North America", "later.jpg", 55, null);
-    image.run(4, "Clear Logo", null, "logo.png", 66, "lo/logo.png");
-    return library;
+    image.run(ids[0]!, "box-front", "Japan", 11, "jp/jp.jpg");
+    image.run(ids[0]!, "box-front", "North America", 22, "na/na.jpg");
+    image.run(ids[0]!, "box-front", "World", 33, null);
+    image.run(ids[1]!, "box-front", "North America", 55, null);
+    image.run(ids[2]!, "logo", null, 66, "lo/logo.png");
+    return { library, nes };
   }
 
-  test("is the best downloaded front box: scans first, then by region", () => {
-    const library = seedArt();
-    expect(library.gamesPage(1, 0, 10).map((game) => [game.title, game.art])).toEqual([
-      ["Alpha scanned", "/art/512/na/na.jpg?v=22"],
-      ["Bravo reconstructed", "/art/512/re/rec2.jpg?v=0"],
-      ["Charlie not downloaded", null],
-      ["Delta logo only", null],
+  test("is the best downloaded front box, by region", () => {
+    const { library, nes } = seedArt();
+    expect(library.gamesPage(nes, 0, 10).map((game) => [game.title, game.art])).toEqual([
+      ["Alpha", "/art/512/na/na.jpg?v=22"],
+      ["Bravo not downloaded", null],
+      ["Charlie logo only", null],
     ]);
     library.close();
   });
 
   test("follows the configured region order", () => {
-    const library = seedArt({ artRegions: ["Japan"] });
-    expect(library.gamesPage(1, 0, 1)[0]!.art).toBe("/art/512/jp/jp.jpg?v=11");
+    const { library, nes } = seedArt({ artRegions: ["Japan"] });
+    expect(library.gamesPage(nes, 0, 1)[0]!.art).toBe("/art/512/jp/jp.jpg?v=11");
     library.close();
   });
 });
 
 describe(`a platform with ${STRESS_GAMES.toLocaleString("en")} games`, () => {
   let library: Library;
+  let stress: number;
+  let small: number;
   let keys: string[];
   let ids: number[];
 
   beforeAll(() => {
     library = openLibrary(":memory:");
-    library.db.run("INSERT INTO platforms (id, name) VALUES (1, 'Small')");
-    library.db.run("INSERT INTO games (platform_id, title) VALUES (1, 'Metroid')");
-    seedStressPlatform(library, 2, STRESS_GAMES);
+    small = platformId(library, "nes");
+    stress = platformId(library, "snes");
+    addGame(library, small, "Metroid");
+    seedStressGames(library, stress, STRESS_GAMES);
     // Front box art for every game, half of it downloaded, so the timing
     // below includes the art lookup.
-    library.db.run(`INSERT INTO game_images (game_id, type, region, source, source_name, crc32, path)
-      SELECT id, 'Box - Front', 'North America', 'launchbox', id || '.jpg', id,
+    library.db.run(`INSERT INTO game_images (game_id, type, region, provider, crc32, path)
+      SELECT id, 'box-front', 'North America', 'test', id,
         CASE WHEN id % 2 = 0 THEN substr('0' || id, -2) || '/' || id || '.jpg' END
-      FROM games WHERE platform_id = 2`);
-    const list = fullList(library, 2);
+      FROM games WHERE platform_id = ?`, [stress]);
+    const list = fullList(library, stress);
     keys = list.map((row) => row.sort_key);
     ids = list.map((row) => row.id);
   });
@@ -201,22 +261,22 @@ describe(`a platform with ${STRESS_GAMES.toLocaleString("en")} games`, () => {
   test("pages add up to the full sorted list, without hidden games", () => {
     const paged: number[] = [];
     for (let offset = 0; ; offset += 200) {
-      const rows = library.gamesPage(2, offset, 200);
+      const rows = library.gamesPage(stress, offset, 200);
       if (rows.length === 0) break;
       paged.push(...rows.map((row) => row.id));
     }
     expect(paged).toEqual(ids);
-    const art = library.gamesPage(2, 0, 200).map((row) => row.art);
+    const art = library.gamesPage(stress, 0, 200).map((row) => row.art);
     expect(art.filter(Boolean).length).toBeGreaterThan(50);
     expect(art.every((url, i) => (url === null) === (ids[i]! % 2 === 1))).toBe(true);
     expect(ids.length).toBeLessThan(STRESS_GAMES);
-    expect(library.platforms().find((p) => p.id === 2)!.game_count).toBe(ids.length);
+    expect(library.platforms().find((p) => p.id === stress)!.game_count).toBe(ids.length);
   });
 
   test("pages are capped and clamped", () => {
-    expect(library.gamesPage(2, 0, 10_000)).toHaveLength(200);
-    expect(library.gamesPage(2, -5, 3).map((row) => row.id)).toEqual(ids.slice(0, 3));
-    expect(library.gamesPage(2, ids.length, 100)).toEqual([]);
+    expect(library.gamesPage(stress, 0, 10_000)).toHaveLength(200);
+    expect(library.gamesPage(stress, -5, 3).map((row) => row.id)).toEqual(ids.slice(0, 3));
+    expect(library.gamesPage(stress, ids.length, 100)).toEqual([]);
   });
 
   test("letter jumps match the Godot frontend's, both ways and across the wrap", () => {
@@ -229,29 +289,29 @@ describe(`a platform with ${STRESS_GAMES.toLocaleString("en")} games`, () => {
       return index === from ? null : index;
     };
     for (const from of starts) {
-      expect([from, library.letterJump(2, ids[from]!, 1)]).toEqual([from, expected(from, 1)]);
-      expect([from, library.letterJump(2, ids[from]!, -1)]).toEqual([from, expected(from, -1)]);
+      expect([from, library.letterJump(stress, ids[from]!, 1)]).toEqual([from, expected(from, 1)]);
+      expect([from, library.letterJump(stress, ids[from]!, -1)]).toEqual([from, expected(from, -1)]);
     }
   });
 
   test("letter jumps on tiny lists", () => {
-    const metroid = fullList(library, 1)[0]!.id;
-    expect(library.letterJump(1, metroid, 1)).toBeNull();
-    library.db.run("INSERT INTO platforms (id, name) VALUES (3, 'Same letter')");
-    library.db.run("INSERT INTO games (platform_id, title) VALUES (3, 'Mario'), (3, 'Metroid'), (3, 'Mother')");
-    const mario = fullList(library, 3)[0]!.id;
-    expect(library.letterJump(3, mario, 1)).toBeNull();
-    expect(library.letterJump(3, mario, -1)).toBeNull();
-    // Not a game of that platform, or hidden.
-    expect(library.letterJump(1, mario, 1)).toBeNull();
+    const metroid = fullList(library, small)[0]!.id;
+    expect(library.letterJump(small, metroid, 1)).toBeNull();
+    const same = platformId(library, "gb");
+    for (const title of ["Mario", "Metroid", "Mother"]) addGame(library, same, title);
+    const mario = fullList(library, same)[0]!.id;
+    expect(library.letterJump(same, mario, 1)).toBeNull();
+    expect(library.letterJump(same, mario, -1)).toBeNull();
+    // Not a game of that platform.
+    expect(library.letterJump(small, mario, 1)).toBeNull();
   });
 
   test("the page query walks the wheel index without sorting", () => {
     const plan = library.db
-      .query<{ detail: string }, []>(
-        "EXPLAIN QUERY PLAN SELECT id, title, release_year FROM games WHERE platform_id = 2 AND hide = 0 ORDER BY sort_key, id LIMIT 100 OFFSET 99000",
+      .query<{ detail: string }, [number]>(
+        "EXPLAIN QUERY PLAN SELECT id, title, release_year FROM games WHERE platform_id = ? AND hide = 0 ORDER BY sort_key, id LIMIT 100 OFFSET 89000",
       )
-      .all()
+      .all(stress)
       .map((row) => row.detail)
       .join("\n");
     expect(plan).toContain("games_wheel");
@@ -259,8 +319,8 @@ describe(`a platform with ${STRESS_GAMES.toLocaleString("en")} games`, () => {
   });
 
   test("a page at the far end, with art, and a letter jump each take under 5 ms", () => {
-    const page = time(() => library.gamesPage(2, ids.length - 100, 100));
-    const jump = time(() => library.letterJump(2, ids[ids.length - 1]!, -1));
+    const page = time(() => library.gamesPage(stress, ids.length - 100, 100));
+    const jump = time(() => library.letterJump(stress, ids[ids.length - 1]!, -1));
     console.log(`page with art at offset ${ids.length - 100}: ${page.toFixed(2)} ms, letter jump: ${jump.toFixed(2)} ms`);
     expect(page).toBeLessThan(5);
     expect(jump).toBeLessThan(5);

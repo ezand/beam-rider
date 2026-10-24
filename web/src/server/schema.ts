@@ -1,10 +1,10 @@
 import type { Database } from "bun:sqlite";
 
 /**
- * The library schema, modelled on LaunchBox: platforms in a tree of platform
- * categories, games that each belong to one platform, alternate names,
- * genres, images, additional applications (discs, alternate versions) and
- * playlists.
+ * The library schema. The library holds the user's own games: a game exists
+ * because the ROM scanner found files for it. Platforms are BeamRider's own
+ * (src/server/scanner/platforms.ts). Metadata and artwork fields are neutral,
+ * for scrapers to fill from whichever provider they use.
  *
  * Each entry in MIGRATIONS moves the database up one version. The current
  * version is `PRAGMA user_version`. Never edit a migration that has shipped;
@@ -15,9 +15,9 @@ import type { Database } from "bun:sqlite";
 const TITLE = "lower(trim(title))";
 
 /**
- * The key games sort and letter-jump by. An explicit sort title wins, as in
- * LaunchBox. Otherwise a leading article is dropped, so "The Legend of Zelda"
- * sorts under L, matching make_sort_name() in the Godot frontend.
+ * The key games sort and letter-jump by. An explicit sort title wins.
+ * Otherwise a leading article is dropped, so "The Legend of Zelda" sorts
+ * under L, matching make_sort_name() in the Godot frontend.
  */
 const SORT_KEY = `CASE
   WHEN nullif(trim(sort_title), '') IS NOT NULL THEN lower(trim(sort_title))
@@ -31,135 +31,98 @@ const flag = (name: string) => `${name} INTEGER NOT NULL DEFAULT 0 CHECK (${name
 
 export const MIGRATIONS: string[][] = [
   [
-    // LaunchBox's "Parents" tree, such as Consoles > Nintendo.
-    `CREATE TABLE platform_categories (
-      id INTEGER PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      parent_id INTEGER REFERENCES platform_categories(id) ON DELETE SET NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      notes TEXT
-    )`,
-    `CREATE INDEX platform_categories_by_parent ON platform_categories(parent_id, sort_order)`,
-
-    // `scrape_as` is the platform name scrapers know it by. `color` is the
-    // card color in BeamRider; null shows the default. The hardware fields
-    // are free text, as in LaunchBox ("1 (up to 8 if daisy-chained)").
+    // Synced from PLATFORMS at startup, so `slug`, `name`, `maker` and
+    // `year` follow the code. The rest is the user's: `custom_name` replaces
+    // `name` where shown, and `color` is the card color (null shows the
+    // default).
     `CREATE TABLE platforms (
       id INTEGER PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      sort_title TEXT,
-      manufacturer TEXT,
-      developer TEXT,
-      release_date TEXT,
-      release_year INTEGER GENERATED ALWAYS AS (CAST(substr(release_date, 1, 4) AS INTEGER)) VIRTUAL,
-      notes TEXT,
-      cpu TEXT,
-      memory TEXT,
-      graphics TEXT,
-      sound TEXT,
-      display TEXT,
-      media TEXT,
-      max_controllers TEXT,
-      ${flag("emulated")},
-      scrape_as TEXT,
-      color TEXT,
-      date_added TEXT,
-      date_modified TEXT
-    )`,
-    `CREATE TABLE platform_alternate_names (
-      platform_id INTEGER NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,
+      slug TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
-      PRIMARY KEY (platform_id, name)
-    ) WITHOUT ROWID`,
-
-    // A platform can sit in several categories, as in LaunchBox.
-    `CREATE TABLE platform_category_platforms (
-      category_id INTEGER NOT NULL REFERENCES platform_categories(id) ON DELETE CASCADE,
-      platform_id INTEGER NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (category_id, platform_id)
+      custom_name TEXT,
+      sort_title TEXT,
+      maker TEXT,
+      year INTEGER,
+      color TEXT
     )`,
-    `CREATE INDEX platform_category_platforms_by_platform ON platform_category_platforms(platform_id)`,
 
-    // Dates are ISO 8601 text; release dates may be just a year or year-month.
+    // One game per title on a platform: regional versions and revisions are
+    // files of the same game. `group_key` (from matchKey) is what files are
+    // grouped by. Dates are ISO 8601 text, possibly just a year or year-month.
     `CREATE TABLE games (
       id INTEGER PRIMARY KEY,
       platform_id INTEGER NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,
+      group_key TEXT NOT NULL,
       title TEXT NOT NULL,
       sort_title TEXT,
       sort_key TEXT GENERATED ALWAYS AS (${SORT_KEY}) STORED,
-      application_path TEXT,
-      command_line TEXT,
-      developer TEXT,
-      publisher TEXT,
-      series TEXT,
       release_date TEXT,
       release_year INTEGER GENERATED ALWAYS AS (CAST(substr(release_date, 1, 4) AS INTEGER)) VIRTUAL,
-      region TEXT,
-      version TEXT,
-      play_mode TEXT,
-      max_players INTEGER,
+      developer TEXT,
+      publisher TEXT,
+      players TEXT,
       rating TEXT,
-      community_star_rating REAL,
-      community_rating_count INTEGER NOT NULL DEFAULT 0,
-      star_rating INTEGER,
-      ${flag("cooperative")},
-      notes TEXT,
-      video_url TEXT,
-      wikipedia_url TEXT,
-      source TEXT,
-      status TEXT,
-      release_type TEXT,
-      launchbox_db_id INTEGER,
-      steam_app_id INTEGER,
+      description TEXT,
       ${flag("favorite")},
-      ${flag("completed")},
-      ${flag("broken")},
       ${flag("hide")},
       play_count INTEGER NOT NULL DEFAULT 0,
       play_time_seconds INTEGER NOT NULL DEFAULT 0,
       last_played_at TEXT,
-      date_added TEXT,
-      date_modified TEXT
+      date_added TEXT NOT NULL,
+      UNIQUE (platform_id, group_key)
     )`,
     // The wheel's index: a platform's visible games in sort order. The rowid
     // is its implicit last column, so ORDER BY sort_key, id needs no sort, and
-    // OFFSET and range counts read only the index. It also serves the
-    // foreign key lookups on platform_id.
+    // OFFSET and range counts read only the index.
     `CREATE INDEX games_wheel ON games(platform_id, hide, sort_key)`,
-    // Imports match games to the LaunchBox Games Database by its id.
-    `CREATE UNIQUE INDEX games_by_launchbox_id ON games(launchbox_db_id)`,
 
-    `CREATE TABLE game_alternate_names (
+    // A game file on disk, or a file inside an archive (`entry`). Hashes are
+    // of the game data (`data_size` bytes: the file in the archive, or the
+    // file after removing a copier header of `header_bytes`).
+    // `match_method` says how the file was identified (hash, dat-name), or is
+    // null if only its file name was used. `members` lists, as JSON, the files
+    // a .cue, .gdi or .m3u brings along.
+    `CREATE TABLE rom_files (
+      id INTEGER PRIMARY KEY,
       game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      region TEXT NOT NULL DEFAULT '',
-      PRIMARY KEY (game_id, name, region)
-    ) WITHOUT ROWID`,
+      path TEXT NOT NULL UNIQUE,
+      entry TEXT,
+      members TEXT,
+      size INTEGER NOT NULL,
+      mtime_ms INTEGER NOT NULL,
+      data_size INTEGER,
+      crc32 INTEGER,
+      md5 TEXT,
+      sha1 TEXT,
+      header_bytes INTEGER NOT NULL DEFAULT 0,
+      match_method TEXT,
+      dat_name TEXT,
+      title TEXT NOT NULL,
+      region TEXT,
+      tags TEXT,
+      scanned_at TEXT NOT NULL
+    )`,
+    `CREATE INDEX rom_files_by_game ON rom_files(game_id)`,
 
-    // Every known image of a game, downloaded or not. `source_name` is the
-    // name the source knows it by (for LaunchBox, a GUID file name on its
-    // image host). `path` is set, relative to the media folder, once the file
-    // is downloaded and checked against `crc32`.
+    // Artwork for a game, from a provider. `type` is neutral: box-front,
+    // box-back, box-3d, logo, screenshot, title-screen, fanart, disc, cart,
+    // banner. `path` is set, relative to the media folder, once the file is
+    // downloaded.
     `CREATE TABLE game_images (
       id INTEGER PRIMARY KEY,
       game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
       type TEXT NOT NULL,
       region TEXT,
-      source TEXT NOT NULL,
-      source_name TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      url TEXT,
       crc32 INTEGER,
       path TEXT,
       bytes INTEGER,
       downloaded_at TEXT,
-      error TEXT,
-      UNIQUE (source, source_name)
+      error TEXT
     )`,
     `CREATE INDEX game_images_by_game ON game_images(game_id, type)`,
-    `CREATE INDEX game_images_by_type ON game_images(type, game_id)`,
 
-    // LaunchBox keeps genres as a ;-separated list. Normalized, so a genre
-    // view can list and count them with an index.
     `CREATE TABLE genres (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL UNIQUE
@@ -170,20 +133,6 @@ export const MIGRATIONS: string[][] = [
       PRIMARY KEY (game_id, genre_id)
     ) WITHOUT ROWID`,
     `CREATE INDEX game_genres_by_genre ON game_genres(genre_id, game_id)`,
-
-    // Extra discs, alternate versions and helper programs for a game.
-    `CREATE TABLE additional_applications (
-      id INTEGER PRIMARY KEY,
-      game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      application_path TEXT,
-      command_line TEXT,
-      region TEXT,
-      version TEXT,
-      disc INTEGER,
-      sort_order INTEGER NOT NULL DEFAULT 0
-    )`,
-    `CREATE INDEX additional_applications_by_game ON additional_applications(game_id, sort_order)`,
 
     `CREATE TABLE playlists (
       id INTEGER PRIMARY KEY,

@@ -2,18 +2,22 @@
 
 A web version of the BeamRider frontend: a 3D carousel of platforms, then of each platform's games, built with React and CSS 3D transforms (no canvas or WebGL). The Bun server reads the library from SQLite, and the browser loads games a page at a time as the wheel turns, so it handles platforms with 100,000+ games.
 
+The library holds your games only: the ROM scanner builds it from your files, identifying them with the No-Intro and Redump reference lists. Metadata and artwork come later from scrapers; the schema has neutral fields for them.
+
 Keys: ← → browse (hold to speed up), PageUp/PageDown jump to the next letter, Enter select, Esc back. The mouse wheel also browses.
 
 ```bash
 bun install
-bun dev                    # development server with hot reloading
-bun test                   # tests, including a 100,000-game platform
-bun check                  # type check
-bun run build              # production build in dist/
-bun start                  # production server
-bun run import:launchbox   # import the LaunchBox Games Database
-bun run import:images      # download artwork
+bun dev                # development server with hot reloading
+bun test               # tests, including a 100,000-game platform
+bun check              # type check
+bun run build          # production build in dist/
+bun start              # production server
+bun run import:dats    # import the No-Intro and Redump reference lists
+bun run scan           # scan your ROM folders
 ```
+
+To set up a library: set `LIBRARY_ROM_ROOTS` in `.env`, then run `import:dats` and `scan`.
 
 ## Layout
 
@@ -24,67 +28,87 @@ bun run import:images      # download artwork
   - `schema.ts`: tables and migrations.
   - `library.ts`: the wheel's queries.
   - `art.ts`: card art thumbnails.
-  - `launchbox.ts`: the LaunchBox importer.
-  - `images.ts`: the image downloader.
+  - `scanner/`: the ROM scanner:
+    - `platforms.ts`: the platforms BeamRider knows;
+    - `dat.ts`: the DAT reference lists;
+    - `names.ts`: dump names and title keys;
+    - `archives.ts`: zip and 7z listings;
+    - `hash.ts`: checksums;
+    - `scan.ts`: the scan itself.
   - `config.ts`: settings.
-- `scripts/` holds the import commands.
+- `scripts/` holds the commands.
 
 ## Settings
 
 All are optional; see `.env.example`. Relative paths are from this folder.
 
 - `LIBRARY_DB_PATH`: the library database. Default `data/library.db`.
+- `LIBRARY_DATS_PATH`: the DAT reference database. Default `data/dats.db`.
+- `LIBRARY_ROM_ROOTS`: your ROM folders, separated by `:` (`;` on Windows). Default `data/roms`.
+- `LIBRARY_ROM_PLATFORMS`: platforms for folder names the scanner doesn't know, as `folder=platform` pairs (by slug or name) separated by `;`.
 - `LIBRARY_MEDIA_PATH`: downloaded artwork. Default `data/media`.
-- `LIBRARY_ART_REGIONS`: whose box art cards show when a game has several, best first. Default North America, United States, World, Europe, United Kingdom, Japan.
+- `LIBRARY_ART_REGIONS`: whose box art cards show when a game has several, best first. Default North America, USA, World, Europe, United Kingdom, Japan.
 
 ## Library database
 
-If the database doesn't exist, it is created empty with the schema, and the app shows an empty library until it's populated. The schema version is `PRAGMA user_version`; the server applies pending migrations on startup.
+If the database doesn't exist, it is created empty with the schema. The schema version is `PRAGMA user_version`; pending migrations are applied when it's opened.
 
-The schema follows LaunchBox:
-
-- `platform_categories` is a tree (Consoles › Nintendo …), and `platform_category_platforms` places platforms in it (a platform can be in several categories).
-- `platforms` has LaunchBox's fields plus BeamRider's `color` for the card.
-- `games` belong to one platform and have LaunchBox's fields: title and optional `sort_title`, release date, developer, publisher, series, ratings, favorite/completed/broken/hide flags, play stats.
+- `platforms` are BeamRider's own, synced from `src/server/scanner/platforms.ts` whenever the library opens: slug, short name (SNES, PlayStation), maker and year. Your `color` and `sort_title` are kept. Only platforms with games appear on the wheel.
+- `games` are your games: one per title on a platform, so regional versions and revisions are files of one game.
+  - `group_key` is the title key the files are grouped by.
   - `sort_key` is generated: the sort title, or the title without a leading "The", "A" or "An", lowercased.
-  - `release_year` is generated from `release_date`.
-  - `launchbox_db_id` matches a game to the LaunchBox Games Database.
-- `platform_alternate_names` and `game_alternate_names`.
-- `game_images` lists every known image of a game (type, region, source, CRC32). `path` is set, relative to the media folder, once the file is downloaded.
-- `genres` and `game_genres` (many to many), `additional_applications` (extra discs, alternate versions) and `playlists` with `playlist_games`.
+  - The other fields (release date, developer, publisher, players, rating, description) are neutral, for scrapers to fill. Favorite, hidden and play stats are yours.
+  - A game is removed when its last file goes.
+- `rom_files` are your game files: path, size, checksums, how each was identified, its DAT name, region and tags.
+- `game_images` holds artwork from providers, with neutral types (`box-front`, `logo`, `screenshot`, …). `path` is set once a file is downloaded.
+- `genres`/`game_genres` and `playlists`/`playlist_games`.
 
-The wheel lists a platform's games where `hide = 0`, in `sort_key, id` order, using the index `games_wheel (platform_id, hide, sort_key)`. Pages and letter jumps read only that index. At 100,000 games, the slowest page (at the far end) and a letter jump each take about 3 ms.
+The wheel lists a platform's visible games in `sort_key, id` order through the index `games_wheel (platform_id, hide, sort_key)`. Pages and letter jumps read only that index. At 100,000 games, the slowest page (at the far end) and a letter jump each take about 3 ms.
 
-## Importing the LaunchBox Games Database
+The DATs are kept apart from the library, in `data/dats.db`, since they list games you don't have.
 
-`bun run import:launchbox` downloads [Metadata.zip](https://gamesdb.launchbox-app.com/Metadata.zip) to `data/launchbox/` and imports it: about 190 platforms, 190,000 games and 1.3 million image entries, in about 30 seconds.
-- The download is reused for 24 hours; `--refresh` forces a new one.
-- The import is an upsert, so run it again for LaunchBox's updates. Your own fields (favorites, play stats, sort titles, card colors) and downloaded images are kept, and only images LaunchBox replaced are fetched again.
+## Scanning your games
 
-`bun run import:images` downloads artwork. Every image is listed in `game_images`, but by default it downloads only:
-- every front box image (`Box - Front` and `Box - Front - Reconstructed`), about 230,000 files and ~240 GB;
-- every image of the 50 most rated games (about 3,000 files).
+`bun run scan` finds your game files and builds the library's games from them.
 
-It checks free space first (`--force` skips that) and shows progress. Stop it with Ctrl+C at any time; the next run carries on where it stopped. Expect about 3–4 hours at 20 MB/s.
-- Options: `--types`, `--top`, `--limit`, `--concurrency` (default 8), `--retry-failed`.
-- Failures are recorded in `game_images.error`.
-- LaunchBox's CRC32 is out of date for some images; such an image is accepted when two downloads give identical bytes.
+**Folders.** Each folder in `LIBRARY_ROM_ROOTS` that's named like a platform, and each such folder inside one, is scanned. Names are compared ignoring case and punctuation:
+- RetroPie and ES-DE short names, such as `snes`, `megadrive` or `psx`;
+- platform names, both BeamRider's short ones ("SNES") and LaunchBox's full ones ("Super Nintendo Entertainment System");
+- No-Intro and Redump names, such as "Nintendo - Super Nintendo Entertainment System".
 
-LaunchBox publishes no license for this data, so keep it local: `data/` is gitignored.
+Other folders are listed by the scan, so you can rename them or map them with `LIBRARY_ROM_PLATFORMS`. About 60 consoles, handhelds, disc systems and computers are supported. Arcade and Neo Geo folders are recognized but not scanned yet.
+
+**Files.** In a platform folder, the scanner reads files with that platform's extensions, plus zip and 7z archives.
+- Subfolders are included, apart from art folders such as `media` and `images`, and hidden files.
+- A `.cue`, `.gdi` or `.m3u` is one game together with the files it lists, so a multi-disc game is one entry.
+
+**Identifying games.** Each file is identified by the first of these that works:
+1. **Its checksum in a DAT.** Archives are checked by the CRC32 in their directory, without unpacking. Copier headers (SNES, Atari 7800, Lynx, FDS) are removed before hashing.
+2. **Its name as a DAT game name.** Disc images are identified this way, since they're too large to hash.
+
+Its title comes from that DAT name, or else from the file name: "Legend of Zelda, The - A Link to the Past (USA) (Rev 1)" gives the title "The Legend of Zelda - A Link to the Past", region USA and tag Rev 1. Files with the same title key on a platform are one game. The key ignores case, punctuation, accents and a leading article, so other regions and revisions join the same game.
+
+**Rescans.** Only new and changed files are hashed (`--full` hashes everything again), so a rescan of an unchanged collection takes seconds. Identification runs again each time, so a newer DAT import improves matches without rehashing.
+- Files that are gone are removed.
+- Files under a root that's missing, such as an unplugged drive, are kept until it's back.
+
+**7z archives** need the 7-Zip command line tool (`7zz` or `7z`) to be identified by checksum; without it they're identified by name.
+
+`bun run import:dats` downloads the DATs of the supported platforms from [libretro-database](https://github.com/libretro/libretro-database) (CC BY-SA 4.0) to `data/dats/`, and loads them into `data/dats.db` (about 100,000 entries, 20 seconds). Copies are reused for a week; `--refresh` downloads them again.
 
 ## Card art
 
-Game cards show the game's best downloaded front box: a scan before a reconstruction, then by `LIBRARY_ART_REGIONS`. Until the image has loaded, or if there is none, the card shows the title.
+Game cards show the game's best downloaded front box (`box-front` in `game_images`), by `LIBRARY_ART_REGIONS`. Until the image has loaded, or if there is none, the card shows the title.
 
 Nothing is loaded at startup. The carousel renders an image only for the cards near the front, so art loads as the wheel turns.
 
-The originals are large scans, so cards load `GET /art/512/<path>?v=<crc32>` instead.
+Originals are often large scans, so cards load `GET /art/512/<path>?v=<crc32>` instead.
 - **First request:** shrinks the original to fit 512 px as WebP (about 30 ms) and caches it in `<media>/thumbs/`.
-- **After that:** it's served from disk, with headers that let the browser cache it for good. The version in the URL changes when LaunchBox replaces an image.
+- **After that:** it's served from disk, with headers that let the browser cache it for good. The version in the URL changes when an image is replaced.
 
 ## API
 
-- `GET /api/platforms` lists platforms with visible game counts.
+- `GET /api/platforms` lists the platforms with games, with their counts.
 - `GET /api/platforms/:id/games?offset=&limit=` returns `{ offset, rows: [{ id, title, release_year, art }] }`. `art` is the card art URL, or null. `limit` is at most 200.
 - `GET /api/platforms/:id/letter?game=&direction=1|-1` returns `{ index }`: where PageDown/PageUp goes from that game, or null.
 - `GET /art/512/:shard/:file?v=` serves card art thumbnails.

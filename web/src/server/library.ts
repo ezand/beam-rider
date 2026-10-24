@@ -1,20 +1,22 @@
 import { Database } from "bun:sqlite";
 import { MAX_PAGE_SIZE, type GameListItem, type Platform } from "../library/api";
 import { artUrl } from "./art";
+import { PLATFORMS } from "./scanner/platforms";
 import { migrate } from "./schema";
 
 /**
  * Read access to the library database, with the queries the wheel needs.
- * Every games query lists a platform's visible games in `sort_key, id` order
- * and walks the `games_wheel` index, so it costs the same at any list size.
+ * Every game in the library is one of the user's (the scanner adds them), so
+ * the wheel lists a platform's visible games in `sort_key, id` order through
+ * the `games_wheel` index, which costs the same at any list size.
  */
 export type Library = ReturnType<typeof openLibrary>;
 
-/** The front box art types a card shows, best first. */
-export const CARD_ART_TYPES = ["Box - Front", "Box - Front - Reconstructed"];
+/** The artwork type a card shows. */
+export const CARD_ART_TYPE = "box-front";
 
 /** Whose box art a card shows when a game has several, best first. */
-export const DEFAULT_ART_REGIONS = ["North America", "United States", "World", "Europe", "United Kingdom", "Japan"];
+export const DEFAULT_ART_REGIONS = ["North America", "USA", "World", "Europe", "United Kingdom", "Japan"];
 
 export type LibraryOptions = { artRegions?: string[] };
 
@@ -23,32 +25,32 @@ export function openLibrary(path: string, { artRegions = DEFAULT_ART_REGIONS }: 
   const db = new Database(path, { create: true, strict: true });
   db.run("PRAGMA foreign_keys = ON");
   db.run("PRAGMA busy_timeout = 5000");
-  // WAL lets an importer write on its own connection while the server reads.
+  // WAL lets the scanner write on its own connection while the server reads.
   if (path !== ":memory:") {
     db.run("PRAGMA journal_mode = WAL");
     db.run("PRAGMA synchronous = NORMAL");
   }
   migrate(db);
+  syncPlatforms(db);
 
+  // Platforms with games, and how many. A custom name replaces the code's.
   const platformsQuery = db.query<Platform, []>(`
-    SELECT p.id, p.name, p.manufacturer, p.release_year, p.color,
-      (SELECT COUNT(*) FROM games g WHERE g.platform_id = p.id AND g.hide = 0) AS game_count
-    FROM platforms p
-    ORDER BY coalesce(nullif(p.sort_title, ''), p.name) COLLATE NOCASE, p.id`);
+    SELECT p.id, coalesce(nullif(trim(p.custom_name), ''), p.name) AS name, p.maker AS manufacturer,
+      p.year AS release_year, p.color, COUNT(g.id) AS game_count
+    FROM platforms p JOIN games g ON g.platform_id = p.id AND g.hide = 0
+    GROUP BY p.id
+    ORDER BY coalesce(nullif(p.sort_title, ''), nullif(trim(p.custom_name), ''), p.name) COLLATE NOCASE, p.id`);
 
   // The page is picked first, so art is looked up for its rows only and not
   // for the ones OFFSET skips. A game's card art is its best downloaded front
-  // box: a scan before a reconstruction, then by region. `art` is its path
-  // and CRC (the URL's version), separated by a tab.
+  // box, by region. `art` is its path and CRC (the URL's version), separated
+  // by a tab.
   type PageRow = Omit<GameListItem, "art"> & { art: string | null };
-  const pageQuery = db.query<PageRow, { platform: number; limit: number; offset: number; types: string; regions: string }>(`
+  const pageQuery = db.query<PageRow, { platform: number; limit: number; offset: number; regions: string }>(`
     SELECT p.id, p.title, p.release_year, (
       SELECT i.path || char(9) || coalesce(i.crc32, 0) FROM game_images i
-      WHERE i.game_id = p.id AND i.type IN (SELECT value FROM json_each($types)) AND i.path IS NOT NULL
-      ORDER BY
-        (SELECT key FROM json_each($types) WHERE value = i.type),
-        coalesce((SELECT key FROM json_each($regions) WHERE value = i.region), 1000),
-        i.id
+      WHERE i.game_id = p.id AND i.type = '${CARD_ART_TYPE}' AND i.path IS NOT NULL
+      ORDER BY coalesce((SELECT key FROM json_each($regions) WHERE value = i.region), 1000), i.id
       LIMIT 1
     ) AS art
     FROM (
@@ -58,7 +60,6 @@ export function openLibrary(path: string, { artRegions = DEFAULT_ART_REGIONS }: 
       LIMIT $limit OFFSET $offset
     ) p
     ORDER BY p.sort_key, p.id`);
-  const types = JSON.stringify(CARD_ART_TYPES);
   const regions = JSON.stringify(artRegions);
 
   // Letter jumps. Range counts walk the index row by row, so they are the
@@ -95,7 +96,6 @@ export function openLibrary(path: string, { artRegions = DEFAULT_ART_REGIONS }: 
         platform,
         offset: Math.max(0, Math.floor(offset)),
         limit: Math.min(Math.max(0, Math.floor(limit)), MAX_PAGE_SIZE),
-        types,
         regions,
       });
       return rows.map((row) => {
@@ -130,6 +130,21 @@ export function openLibrary(path: string, { artRegions = DEFAULT_ART_REGIONS }: 
 
     close: () => db.close(),
   };
+}
+
+/**
+ * Brings the platform rows in line with PLATFORMS: adds new platforms and
+ * updates names, makers and years. The user's own settings (custom name,
+ * color, sort title) are kept, and platforms that left the code keep their
+ * games.
+ */
+function syncPlatforms(db: Database) {
+  const upsert = db.query(`
+    INSERT INTO platforms (slug, name, maker, year) VALUES (?, ?, ?, ?)
+    ON CONFLICT (slug) DO UPDATE SET name = excluded.name, maker = excluded.maker, year = excluded.year`);
+  db.transaction(() => {
+    for (const platform of PLATFORMS) upsert.run(platform.slug, platform.name, platform.maker, platform.year);
+  })();
 }
 
 /** A sort key's first character (code point), or "" for an empty key. */

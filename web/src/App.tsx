@@ -301,10 +301,10 @@ export function App() {
   } else if (platformsResult.isError) {
     info = "Couldn't load the library";
   } else if (platforms.length === 0) {
-    info = "The library is empty";
+    info = "No games found: set LIBRARY_ROM_ROOTS and run bun run scan";
   } else if (!platform) {
     const current = platforms[index]!;
-    info = joined(current.name, `${current.game_count} games`);
+    info = joined(current.name, `${current.game_count} ${current.game_count === 1 ? "game" : "games"}`);
   } else {
     const current = game(index);
     const position = `${index + 1} / ${count}`;
