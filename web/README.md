@@ -24,6 +24,7 @@ To set up a library: set `LIBRARY_ROM_ROOTS` in `.env`, then run `import:dats` a
 
 - `src/components/Carousel.tsx` is a stateless port of the Godot spinner (`frontend/scripts/spinner.gd`).
 - `src/App.tsx` drives the two-level navigation, like `frontend/scripts/main.gd`.
+- `src/components/DetailsPanel.tsx` shows the selected item's art, facts and description beside the wheel, like the Godot frontend's details panel. It fades out while the wheel moves and fills in once it stops, so scrolling past games doesn't fetch their details. Windows narrower than 900 px leave it out.
 - `src/library/` is the client side of the library: API types (shared with the server), TanStack Query definitions and `useGamePages`, which loads pages of games around the selection.
 - `src/server/` is the server side:
   - `schema.ts`: tables and migrations.

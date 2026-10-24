@@ -12,9 +12,31 @@ body,
   overflow: hidden;
 }
 
+/* Two columns, as the Godot frontend: the wheel, and the details panel. */
 .app {
-  position: relative;
+  display: flex;
   height: 100%;
+}
+
+.app__browse {
+  position: relative;
+  flex: 1.8 1 0;
+  min-width: 0;
+}
+
+/* Two classes, to win over the panel's own size whatever order the styles load in. */
+.app > .app__details {
+  flex: 1 1 0;
+  min-width: 0;
+  height: auto;
+  margin: 32px 40px 32px 0;
+}
+
+/* Narrow windows keep the room for the wheel. */
+@media (max-width: 900px) {
+  .app > .app__details {
+    display: none;
+  }
 }
 
 /* Laid over the carousel, as the Godot frontend's CanvasLayer UI. */

@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Carousel, type CarouselItem } from "./components/Carousel";
-import type { GameListItem, Platform } from "./library/api";
-import { fetchLetterJump, gamesPageQuery, platformsQuery } from "./library/queries";
+import { DetailsPanel, type DetailsItem } from "./components/DetailsPanel";
+import type { GameDetails, GameListItem, Platform } from "./library/api";
+import { fetchLetterJump, gameDetailsQuery, gamesPageQuery, platformsQuery } from "./library/queries";
 import { useGamePages } from "./library/useGamePages";
 import "./index.css";
 
@@ -29,6 +30,15 @@ const GROW_MS = 280;
 
 /** Wheel scroll distance, in pixels, that moves the selection by one. */
 const WHEEL_STEP = 60;
+
+/** How long the selection must stay put to count as settled, for the details panel. */
+const SETTLE_MS = 250;
+
+const DESCRIPTION_CREDITS: Record<string, string> = {
+  wikipedia: "From Wikipedia",
+  igdb: "From IGDB",
+  "hasheous-ai": "Written by AI (Hasheous)",
+};
 
 function posmod(a: number, n: number): number {
   return ((a % n) + n) % n;
@@ -86,6 +96,63 @@ function gameCard(platform: Platform, index: number, game: GameListItem | null):
   return { name: game.title, subtitle: game.release_year ? String(game.release_year) : "", color, art: game.art };
 }
 
+function platformDetails(platform: Platform): DetailsItem {
+  return {
+    title: platform.name,
+    subtitle: joined(platform.manufacturer, platform.release_year),
+    accent: platform.color ?? undefined,
+    facts: [["Games", String(platform.game_count)]],
+  };
+}
+
+/** "1990-11" -> "November 1990"; "1990" stays. */
+function releaseDate(date: string | null): string | null {
+  if (!date) return null;
+  const [year, month, day] = date.split("-").map(Number);
+  if (!month) return String(year);
+  const at = new Date(Date.UTC(year!, month - 1, day ?? 1));
+  return at.toLocaleDateString("en-GB", { year: "numeric", month: "long", ...(day ? { day: "numeric" } : {}), timeZone: "UTC" });
+}
+
+/** A game's details, or what the wheel knows while they load. */
+function gameDetails(platform: Platform, row: GameListItem | null, details: GameDetails | undefined): DetailsItem | null {
+  if (!row) return null;
+  if (!details) {
+    return { title: row.title, subtitle: joined(platform.name, row.release_year), accent: platform.color ?? undefined, art: row.art };
+  }
+  const regions = [...new Set(details.files.map((file) => file.region).filter((region): region is string => Boolean(region)))];
+  const facts: [string, string | null][] = [
+    ["Released", releaseDate(details.release_date)],
+    ["Developer", details.developer],
+    ["Publisher", details.publisher],
+    ["Genre", details.genres.join(", ") || null],
+    ["Players", details.players],
+    ["Rating", details.rating],
+    ["Series", details.series],
+    [details.files.length === 1 ? "File" : "Files", regions.length ? `${details.files.length} (${regions.join(", ")})` : String(details.files.length)],
+  ];
+  const source = details.description_source;
+  return {
+    title: details.title,
+    subtitle: joined(details.platform, details.release_date?.slice(0, 4)),
+    accent: platform.color ?? undefined,
+    art: details.images.find((image) => image.type === "box-front")?.url ?? row.art,
+    facts: facts.filter((fact): fact is [string, string] => Boolean(fact[1])),
+    description: details.description,
+    credit: source ? { text: DESCRIPTION_CREDITS[source] ?? `From ${source}`, url: details.description_url } : null,
+  };
+}
+
+/** `value`, once it has stayed the same for `ms`. */
+function useSettled<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
+}
+
 export function App() {
   const queryClient = useQueryClient();
   const platformsResult = useQuery(platformsQuery());
@@ -108,6 +175,19 @@ export function App() {
   const count = platform ? platform.game_count : platforms.length;
   const index = count > 0 ? posmod(selected, count) : 0;
   const game = useGamePages(platform?.id ?? null, count, index);
+
+  // The details panel follows the selection once the wheel has stopped, so
+  // scrolling past games doesn't fetch each one's details. While the wheel
+  // moves it keeps the last item, fading it out.
+  const selection = `${level}:${platform?.id ?? "platforms"}:${index}`;
+  const settled = useSettled(selection, SETTLE_MS) === selection && wheelScale === 1;
+  const settledGame = platform && settled ? game(index) : null;
+  const details = useQuery({ ...gameDetailsQuery(settledGame?.id ?? 0), enabled: settledGame !== null });
+  let detailsItem: DetailsItem | null = null;
+  if (settled && platform) detailsItem = gameDetails(platform, settledGame, details.data);
+  else if (settled && platforms[index]) detailsItem = platformDetails(platforms[index]!);
+  const lastDetails = useRef<DetailsItem | null>(null);
+  if (detailsItem) lastDetails.current = detailsItem;
 
   const move = (steps: number) => {
     if (count < 2 || steps === 0) return;
@@ -316,25 +396,28 @@ export function App() {
 
   return (
     <div className="app">
-      <Carousel
-        key={level}
-        count={count}
-        getItem={platform ? (i) => gameCard(platform, i, game(i)) : (i) => platformCard(platforms[i]!)}
-        selected={selected}
-        itemSize={platform ? GAME_ITEM_SIZE : PLATFORM_ITEM_SIZE}
-        itemSpacing={platform ? 1.5 : 2.1}
-        scale={wheelScale}
-        aria-label={platform ? `${platform.name} games` : "Platforms"}
-      />
-      <div className="app__overlay">
-        <div className="app__title">{title}</div>
-        <div className="app__info" aria-live="polite">
-          {notice ?? info}
-        </div>
-        <div className="app__hints">
-          ←  →  browse     PgUp  PgDn  letter     Enter  select     Esc  back
+      <div className="app__browse">
+        <Carousel
+          key={level}
+          count={count}
+          getItem={platform ? (i) => gameCard(platform, i, game(i)) : (i) => platformCard(platforms[i]!)}
+          selected={selected}
+          itemSize={platform ? GAME_ITEM_SIZE : PLATFORM_ITEM_SIZE}
+          itemSpacing={platform ? 1.5 : 2.1}
+          scale={wheelScale}
+          aria-label={platform ? `${platform.name} games` : "Platforms"}
+        />
+        <div className="app__overlay">
+          <div className="app__title">{title}</div>
+          <div className="app__info" aria-live="polite">
+            {notice ?? info}
+          </div>
+          <div className="app__hints">
+            ←  →  browse     PgUp  PgDn  letter     Enter  select     Esc  back
+          </div>
         </div>
       </div>
+      <DetailsPanel className="app__details" item={detailsItem ?? lastDetails.current} shown={detailsItem !== null} />
     </div>
   );
 }

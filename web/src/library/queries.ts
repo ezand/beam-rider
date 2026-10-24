@@ -1,5 +1,5 @@
 import { queryOptions } from "@tanstack/react-query";
-import { PAGE_SIZE, type GamesPage, type LetterJump, type Platform } from "./api";
+import { PAGE_SIZE, type GameDetails, type GamesPage, type LetterJump, type Platform } from "./api";
 
 /** Query keys and fetchers for the library API, in one place. */
 
@@ -32,3 +32,10 @@ export const gamesPageQuery = (platformId: number, page: number) =>
 
 export const fetchLetterJump = (platformId: number, gameId: number, direction: 1 | -1) =>
   getJson<LetterJump>(`/api/platforms/${platformId}/letter?game=${gameId}&direction=${direction}`);
+
+/** Everything about one game, for the details panel. */
+export const gameDetailsQuery = (gameId: number) =>
+  queryOptions({
+    queryKey: ["game", gameId],
+    queryFn: ({ signal }) => getJson<GameDetails>(`/api/games/${gameId}`, signal),
+  });
