@@ -40,5 +40,5 @@ theme/default_font_multichannel_signed_distance_field=true
 [rendering]
 
 rendering_device/driver.windows="d3d12"
-anti_aliasing/quality/msaa_3d=2
 textures/vram_compression/import_etc2_astc=true
+anti_aliasing/quality/msaa_3d=2

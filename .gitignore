@@ -2,3 +2,5 @@
 
 # Local secrets (see each app's .env.example)
 .env
+
+.DS_Store
